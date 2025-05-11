@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist['name'] }}{% endblock %}
+
+{% block content %}
+    <h1>{{ playlist['name'] }}</h1>
+    <p>(click to append to queue)</p>
+    <ol>
+        {% for track in tracks %}
+            <li hx-post="/queue/{{ track['track']['uri'] }}" hx-trigger="click" hx-swap="none" style="cursor: pointer">{{ spotify_track_to_name(track) }}</li>
+        {% endfor %}
+    </ol>
+{% endblock %}

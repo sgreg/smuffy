@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Last {{ count }} songs played{% endblock %}
+
+{% block content %}
+<h1>last {{ count }} played songs</h1>
+<ul>
+    {% for song in songs %}
+    <li>{{ song }}</li>
+    {% endfor %}
+</ul>
+{% endblock %}

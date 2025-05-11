@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Playlists{% endblock %}
+
+{% block content %}
+<h1>Your playlists</h1>
+<ul>
+    {% for playlist in playlists %}
+    <li>
+        <a href="/playlist/{{ playlist['id'] }}">{{ playlist['name'] }}</a>
+        {%  if playlist['owner']['uri'] == me %}
+            *
+        {% else %}
+            x
+        {%  endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% endblock %}

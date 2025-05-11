@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Spotify Daily Mix Unfucker{% endblock %}
+
+{% block content %}
+<h1>Welcome {{ username }}</h1>
+Currently playing: {{ playing }}
+    {% if track %}
+        <span style="color: #094; cursor: pointer" hx-post="/add/{{ track['item']['uri'] }}" hx-trigger="click" hx-swap="none">Add</span>
+    {% endif %}
+
+    <h2>Last 10 songs played:</h2>
+    <div hx-get="/last-list?count=10" hx-trigger="load">
+    <ul>
+    {% for _ in range(10) %}
+    <li>...</li>
+    {% endfor %}
+    </ul>
+    </div>
+
+    <div hx-get="/playlists-list" hx-trigger="load">
+    <a href="/playlists">Go to playlists</a>
+    </div>
+{% endblock %}
