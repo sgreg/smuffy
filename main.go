@@ -15,7 +15,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/zmb3/spotify/v2/auth"
@@ -35,6 +41,7 @@ var (
 )
 
 func main() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file", err)
@@ -52,7 +59,13 @@ func main() {
 		}
 	}()
 
-	auth = spotifyauth.New(spotifyauth.WithRedirectURL(redirectURI), spotifyauth.WithScopes(spotifyauth.ScopeUserReadPrivate))
+	auth = spotifyauth.New(
+		spotifyauth.WithRedirectURL(redirectURI),
+		spotifyauth.WithScopes(
+			spotifyauth.ScopeUserReadPrivate,
+			spotifyauth.ScopeUserReadCurrentlyPlaying,
+			spotifyauth.ScopeUserReadRecentlyPlayed,
+		))
 
 	url := auth.AuthURL(state)
 	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
@@ -66,6 +79,13 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("You are logged in as:", user.ID)
+
+	go SpotifyPlaylistDump(client)
+
+	exitSignal := make(chan os.Signal)
+	signal.Notify(exitSignal, syscall.SIGINT, syscall.SIGTERM)
+	<-exitSignal
+	slog.Info("Exit signal received. Good bye.")
 }
 
 func completeAuth(w http.ResponseWriter, r *http.Request) {
@@ -83,4 +103,56 @@ func completeAuth(w http.ResponseWriter, r *http.Request) {
 	client := spotify.New(auth.Client(r.Context(), tok))
 	fmt.Fprintf(w, "Login Completed!")
 	ch <- client
+}
+
+func getEnv(key string, fallback string) string {
+	if value, found := os.LookupEnv(key); found {
+		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, found := os.LookupEnv(key); found {
+		if parseInt, err := strconv.Atoi(value); err == nil {
+			return parseInt
+		} else {
+			slog.Warn("Failed to parse env var key '%s', using fallback %d", key, fallback)
+		}
+	}
+	return fallback
+}
+
+func SpotifyPlaylistDump(client *spotify.Client) {
+	playlistRequestIntervalMinutes := getEnvInt("PLAYLIST_REQUEST_INTERVAL_MINUTES", 10)
+	slog.Debug("Setting up Spotify Playlist Dumper")
+	waitDuration := time.Duration(playlistRequestIntervalMinutes) * time.Minute
+
+	ctx := context.Background()
+
+	for {
+		playing, err := client.PlayerCurrentlyPlaying(ctx)
+		if err != nil {
+			slog.Error("Cannot get what's playing now", "err", err)
+		} else {
+			song := fmt.Sprintf("%s - %s", playing.Item.Artists[0].Name, playing.Item.Name)
+			slog.Info("Playing: " + song)
+		}
+
+		songs, err := client.PlayerRecentlyPlayed(ctx)
+		if err != nil {
+			slog.Error("Cannot get recently played", "err", err)
+		} else {
+			slog.Info("Recently played:")
+			for index, item := range songs {
+				slog.Info(fmt.Sprintf("    %02d: [%s] %s - %s",
+					index+1,
+					item.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
+					item.Track.Artists[0].Name,
+					item.Track.Name))
+			}
+		}
+
+		time.Sleep(waitDuration)
+	}
 }
