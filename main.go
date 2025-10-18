@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -233,15 +234,16 @@ func formatTrack(track spotify.SimpleTrack) string {
 
 func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId spotify.ID) {
 	slog.Debug("Getting predefined playlist tracks")
-	// FIXME default limit for tracks is 100, so larger playlists will be cut off -> add paging
-	playlist, err := client.GetPlaylist(ctx, spotify.ID(playlistId))
+	playlist, err := client.GetPlaylist(ctx, playlistId)
 	if err != nil {
 		slog.Error("Cannot get playlist", "id", playlistId)
 		// The whole point is to manage playlists, so not much to continue here now
 		signalCh <- syscall.SIGTERM
 		return
-	} else {
-		slog.Info("Playlist received", "name", playlist.Name, "tracks", len(playlist.Tracks.Tracks))
+	}
+
+	for {
+		slog.Info("Playlist received", "name", playlist.Name, "tracks", len(playlist.Tracks.Tracks), "total", playlist.Tracks.Total)
 		for index, item := range playlist.Tracks.Tracks {
 			slog.Info(fmt.Sprintf("    %02d: [%s] %s",
 				index+1,
@@ -249,6 +251,15 @@ func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId s
 				formatTrack(item.Track.SimpleTrack),
 			))
 			addToMap(item.Track.SimpleTrack)
+		}
+
+		// see https://github.com/zmb3/spotify/blob/master/examples/paging/page.go
+		err = client.NextPage(ctx, &playlist.Tracks)
+		if err != nil {
+			if !errors.Is(err, spotify.ErrNoMorePages) {
+				slog.Error("Error while retrieving playlist track page", "err", err)
+			}
+			break
 		}
 	}
 }
