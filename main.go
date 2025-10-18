@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/zmb3/spotify/v2/auth"
+	"golang.org/x/oauth2"
 
 	"github.com/zmb3/spotify/v2"
 )
@@ -33,6 +35,8 @@ import (
 // You must register an application at Spotify's developer portal
 // and enter this value.
 const redirectURI = "http://127.0.0.1:58071/callback"
+
+const SpotifyTokenCacheFile = ".cache"
 
 var (
 	auth  *spotifyauth.Authenticator
@@ -67,11 +71,20 @@ func main() {
 			spotifyauth.ScopeUserReadRecentlyPlayed,
 		))
 
-	url := auth.AuthURL(state)
-	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
+	var client *spotify.Client
 
-	// wait for auth to complete
-	client := <-ch
+	slog.Debug("Trying to load cached token")
+	token, err := loadToken()
+	if err != nil {
+		slog.Info("Token not found, or unable to parse, auth required")
+		url := auth.AuthURL(state)
+		fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
+		// wait for auth to complete
+		client = <-ch
+	} else {
+		slog.Debug("Cached token found")
+		client = spotify.New(auth.Client(context.Background(), token))
+	}
 
 	// use the client to make calls that require authorization
 	user, err := client.CurrentUser(context.Background())
@@ -89,7 +102,7 @@ func main() {
 }
 
 func completeAuth(w http.ResponseWriter, r *http.Request) {
-	tok, err := auth.Token(r.Context(), state, r)
+	token, err := auth.Token(r.Context(), state, r)
 	if err != nil {
 		http.Error(w, "Couldn't get token", http.StatusForbidden)
 		log.Fatal(err)
@@ -99,10 +112,51 @@ func completeAuth(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("State mismatch: %s != %s\n", st, state)
 	}
 
-	// use the token to get an authenticated client
-	client := spotify.New(auth.Client(r.Context(), tok))
+	slog.Debug("Saving token", "file", SpotifyTokenCacheFile)
+	if err := saveToken(token); err != nil {
+		slog.Warn("Failed to save token", "err", err)
+	}
+
+	client := spotify.New(auth.Client(r.Context(), token))
 	fmt.Fprintf(w, "Login Completed!")
 	ch <- client
+}
+
+func saveToken(token *oauth2.Token) error {
+	file, err := os.Create(SpotifyTokenCacheFile)
+	if err != nil {
+		return err
+	}
+	// 'defer file.Close()' needs error handling, but not a lot of handling we can (or care to) do here
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
+
+	encoder := json.NewEncoder(file)
+	if err = encoder.Encode(token); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func loadToken() (*oauth2.Token, error) {
+	file, err := os.Open(SpotifyTokenCacheFile)
+	if err != nil {
+		return nil, err
+	}
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
+
+	var token oauth2.Token
+
+	decoder := json.NewDecoder(file)
+	if err = decoder.Decode(&token); err != nil {
+		return nil, err
+	}
+
+	return &token, nil
 }
 
 func getEnv(key string, fallback string) string {
