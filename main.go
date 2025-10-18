@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -39,9 +40,11 @@ const redirectURI = "http://127.0.0.1:58071/callback"
 const SpotifyTokenCacheFile = ".cache"
 
 var (
-	auth  *spotifyauth.Authenticator
-	ch    = make(chan *spotify.Client)
-	state = "abc123"
+	auth     *spotifyauth.Authenticator
+	ch       = make(chan *spotify.Client)
+	state    = "abc123"
+	signalCh = make(chan os.Signal)
+	songsMap = make(map[spotify.URI]string)
 )
 
 func main() {
@@ -53,6 +56,7 @@ func main() {
 
 	// first start an HTTP server
 	http.HandleFunc("/callback", completeAuth)
+	http.HandleFunc("/songmap", getSongMap)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("Got request for:", r.URL.String())
 	})
@@ -91,13 +95,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("You are logged in as:", user.ID)
+	slog.Info(fmt.Sprintf("You are logged in as: %s", user.ID))
 
 	go SpotifyPlaylistDump(client)
 
-	exitSignal := make(chan os.Signal)
-	signal.Notify(exitSignal, syscall.SIGINT, syscall.SIGTERM)
-	<-exitSignal
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	<-signalCh
 	slog.Info("Exit signal received. Good bye.")
 }
 
@@ -178,19 +181,27 @@ func getEnvInt(key string, fallback int) int {
 }
 
 func SpotifyPlaylistDump(client *spotify.Client) {
+	playlistId := spotify.ID(getEnv("SPOTIFY_PLAYLIST_ID", "invalidListId"))
 	playlistRequestIntervalMinutes := getEnvInt("PLAYLIST_REQUEST_INTERVAL_MINUTES", 10)
 	slog.Debug("Setting up Spotify Playlist Dumper")
 	waitDuration := time.Duration(playlistRequestIntervalMinutes) * time.Minute
 
 	ctx := context.Background()
 
+	loadPlaylistToMap(ctx, client, playlistId)
+
 	for {
 		playing, err := client.PlayerCurrentlyPlaying(ctx)
 		if err != nil {
 			slog.Error("Cannot get what's playing now", "err", err)
 		} else {
-			song := fmt.Sprintf("%s - %s", playing.Item.Artists[0].Name, playing.Item.Name)
-			slog.Info("Playing: " + song)
+			var currentlyPlayed string
+			if playing.Item == nil {
+				currentlyPlayed = "nothing"
+			} else {
+				currentlyPlayed = formatTrack(playing.Item.SimpleTrack)
+			}
+			slog.Info("Playing: " + currentlyPlayed)
 		}
 
 		songs, err := client.PlayerRecentlyPlayed(ctx)
@@ -198,15 +209,82 @@ func SpotifyPlaylistDump(client *spotify.Client) {
 			slog.Error("Cannot get recently played", "err", err)
 		} else {
 			slog.Info("Recently played:")
+			var newSongs []spotify.ID
 			for index, item := range songs {
-				slog.Info(fmt.Sprintf("    %02d: [%s] %s - %s",
+				slog.Info(fmt.Sprintf("    %02d: [%s] %s",
 					index+1,
 					item.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
-					item.Track.Artists[0].Name,
-					item.Track.Name))
+					formatTrack(item.Track),
+				))
+				if addToMap(item.Track) {
+					newSongs = append(newSongs, item.Track.ID)
+				}
 			}
+			updatePlaylist(ctx, client, playlistId, newSongs)
 		}
 
 		time.Sleep(waitDuration)
 	}
+}
+
+func formatTrack(track spotify.SimpleTrack) string {
+	return fmt.Sprintf("%s - %s", track.Artists[0].Name, track.Name)
+}
+
+func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId spotify.ID) {
+	slog.Debug("Getting predefined playlist tracks")
+	// FIXME default limit for tracks is 100, so larger playlists will be cut off -> add paging
+	playlist, err := client.GetPlaylist(ctx, spotify.ID(playlistId))
+	if err != nil {
+		slog.Error("Cannot get playlist", "id", playlistId)
+		// The whole point is to manage playlists, so not much to continue here now
+		signalCh <- syscall.SIGTERM
+		return
+	} else {
+		slog.Info("Playlist received", "name", playlist.Name, "tracks", len(playlist.Tracks.Tracks))
+		for index, item := range playlist.Tracks.Tracks {
+			slog.Info(fmt.Sprintf("    %02d: [%s] %s",
+				index+1,
+				item.Track.URI,
+				formatTrack(item.Track.SimpleTrack),
+			))
+			addToMap(item.Track.SimpleTrack)
+		}
+	}
+}
+
+func addToMap(track spotify.SimpleTrack) bool {
+	_, found := songsMap[track.URI]
+	if !found {
+		songsMap[track.URI] = formatTrack(track)
+		slog.Debug("Adding new song to map", "uri", track.URI, "newSize", len(songsMap))
+	}
+	return !found
+}
+
+func getSongMap(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(writer).Encode(songsMap)
+	if err != nil {
+		slog.Warn("Failed to encode songs map", "err", err)
+		http.Error(writer, "Failed to encode to JSON", http.StatusInternalServerError)
+		return
+	}
+}
+
+func updatePlaylist(ctx context.Context, client *spotify.Client, playlistId spotify.ID, newSongs []spotify.ID) {
+	if len(newSongs) == 0 {
+		slog.Debug("Updating playlist skipped, no new songs")
+		return
+	}
+
+	// reverse list to add in the order they were played
+	slices.Reverse(newSongs)
+	slog.Debug("Updating playlist", "newSongsCount", len(newSongs), "songIds", newSongs)
+	snapshot, err := client.AddTracksToPlaylist(ctx, playlistId, newSongs...)
+	if err != nil {
+		slog.Warn("Failed to update playlist", "err", err)
+		return
+	}
+	slog.Debug("Playlist updated", "snapshot ID", snapshot)
 }
