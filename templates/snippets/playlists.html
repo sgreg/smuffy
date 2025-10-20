@@ -1,0 +1,10 @@
+<h3>Your Playlists</h3>
+<ul>
+{{- if .Playlists }}
+  {{- range .Playlists }}
+  <li>{{ .Name }} <small>({{ .ID }})</small></li>
+  {{- end }}
+{{- else }}
+  <li><em>No playlists found</em></li>
+{{- end }}
+</ul>

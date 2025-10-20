@@ -20,6 +20,7 @@ var (
 	client   *spotify.Client
 	tokenCh  = make(chan *oauth2.Token)
 	songsMap = make(map[spotify.URI]string)
+	username = "guest"
 	state    = "abc123"
 )
 
@@ -59,6 +60,11 @@ func SpotifyClientSetup() {
 		log.Fatal(err)
 	}
 	slog.Info(fmt.Sprintf("You are logged in as: %s", user.ID))
+	if user.DisplayName != "" {
+		username = user.DisplayName
+	} else {
+		username = user.ID
+	}
 }
 
 func SpotifyPlaylistDump() {
@@ -72,17 +78,11 @@ func SpotifyPlaylistDump() {
 	loadPlaylistToMap(ctx, client, playlistId)
 
 	for {
-		playing, err := client.PlayerCurrentlyPlaying(ctx)
+		playing, err := GetCurrentlyPlaying(ctx)
 		if err != nil {
 			slog.Error("Cannot get what's playing now", "err", err)
 		} else {
-			var currentlyPlayed string
-			if playing.Item == nil {
-				currentlyPlayed = "nothing"
-			} else {
-				currentlyPlayed = formatTrack(playing.Item.SimpleTrack)
-			}
-			slog.Info("Playing: " + currentlyPlayed)
+			slog.Info("Playing: " + playing)
 		}
 
 		// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time?
@@ -169,4 +169,43 @@ func updatePlaylist(ctx context.Context, client *spotify.Client, playlistId spot
 		return
 	}
 	slog.Debug("Playlist updated", "snapshot ID", snapshot)
+}
+
+type PlaylistInfo struct {
+	Name string
+	ID   string
+}
+
+func GetPlaylists(ctx context.Context) ([]PlaylistInfo, error) {
+	if client == nil {
+		return nil, fmt.Errorf("spotify client not initialized")
+	}
+	page, err := client.CurrentUsersPlaylists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]PlaylistInfo, 0, len(page.Playlists))
+	for _, p := range page.Playlists {
+		items = append(items, PlaylistInfo{Name: p.Name, ID: p.ID.String()})
+	}
+	return items, nil
+}
+
+func GetCurrentlyPlaying(ctx context.Context) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("spotify client not initialized")
+	}
+	playing, err := client.PlayerCurrentlyPlaying(ctx)
+	if err != nil {
+		return "", err
+	}
+	if playing == nil || playing.Item == nil {
+		return "nothing", nil
+	}
+	return formatTrack(playing.Item.SimpleTrack), nil
+}
+
+func GetLastSongs(ctx context.Context, count int) ([]spotify.RecentlyPlayedItem, error) {
+	opts := spotify.RecentlyPlayedOptions{Limit: spotify.Numeric(count)}
+	return client.PlayerRecentlyPlayedOpt(ctx, &opts)
 }

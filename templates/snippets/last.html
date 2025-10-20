@@ -1,0 +1,10 @@
+<h3>Last songs played</h3>
+<ol>
+{{- if .Items }}
+  {{- range .Items }}
+  <li>{{ . }}</li>
+  {{- end }}
+{{- else }}
+  <li><em>No songs yet</em></li>
+{{- end }}
+</ol>
