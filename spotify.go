@@ -19,7 +19,7 @@ var (
 	auth     *spotifyauth.Authenticator
 	client   *spotify.Client
 	tokenCh  = make(chan *oauth2.Token)
-	songsMap = make(map[spotify.URI]string)
+	songsMap = make(map[spotify.ID]string)
 	username = "guest"
 	state    = "abc123"
 )
@@ -128,7 +128,7 @@ func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId s
 		for index, item := range playlist.Tracks.Tracks {
 			slog.Info(fmt.Sprintf("    %02d: [%s] %s",
 				index+1,
-				item.Track.URI,
+				item.Track.ID,
 				formatTrack(item.Track.SimpleTrack),
 			))
 			addToMap(item.Track.SimpleTrack)
@@ -146,10 +146,10 @@ func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId s
 }
 
 func addToMap(track spotify.SimpleTrack) bool {
-	_, found := songsMap[track.URI]
+	_, found := songsMap[track.ID]
 	if !found {
-		songsMap[track.URI] = formatTrack(track)
-		slog.Debug("Adding new song to map", "uri", track.URI, "newSize", len(songsMap))
+		songsMap[track.ID] = formatTrack(track)
+		slog.Debug("Adding new song to map", "id", track.ID, "newSize", len(songsMap))
 	}
 	return !found
 }
