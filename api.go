@@ -40,12 +40,12 @@ func renderTemplate(w http.ResponseWriter, templateFile string, data any) error 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl, err := template.ParseFiles(templateFile)
 	if err != nil {
-		slog.Warn("failed to parse template", "path", templateFile, "err", err)
+		slog.Warn("Failed to parse template", "path", templateFile, "err", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return err
 	}
 	if err := tmpl.Execute(w, data); err != nil {
-		slog.Warn("failed to execute template", "path", templateFile, "err", err)
+		slog.Warn("Failed to execute template", "path", templateFile, "err", err)
 		http.Error(w, "Render error", http.StatusInternalServerError)
 		return err
 	}
@@ -92,8 +92,8 @@ func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
 	items, err := GetPlaylists(ctx)
 	if err != nil {
-		slog.Warn("failed to get playlists", "err", err)
-		http.Error(writer, "failed to get playlists", http.StatusInternalServerError)
+		slog.Warn("Failed to get playlists", "err", err)
+		http.Error(writer, "Failed to get playlists", http.StatusInternalServerError)
 		return
 	}
 	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
@@ -106,8 +106,8 @@ func handleGetNow(writer http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
 	now, err := GetCurrentlyPlaying(ctx)
 	if err != nil {
-		slog.Warn("failed to get currently playing", "err", err)
-		http.Error(writer, "failed to get currently playing", http.StatusInternalServerError)
+		slog.Warn("Failed to get currently playing", "err", err)
+		http.Error(writer, "Failed to get currently playing", http.StatusInternalServerError)
 		return
 	}
 	data := struct{ Now string }{Now: now}
@@ -119,11 +119,11 @@ func handleGetNow(writer http.ResponseWriter, _ *http.Request) {
 func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 	var count = 5
 	param := request.PathValue("count")
-	slog.Debug("path param", "val", param)
+	slog.Debug("Path param", "val", param)
 	if param != "" {
 		conv, err := strconv.Atoi(param)
 		if err != nil {
-			slog.Warn("failed to convert parameter, using default", "param", count, "err", err)
+			slog.Warn("Failed to convert parameter, using default", "param", param, "err", err)
 		} else {
 			count = conv
 		}
@@ -131,8 +131,8 @@ func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 
 	songs, err := GetLastSongs(context.Background(), count)
 	if err != nil {
-		slog.Warn("failed to get last played songs", "err", err)
-		http.Error(writer, "failed to get last played songs", http.StatusInternalServerError)
+		slog.Warn("Failed to get last played songs", "err", err)
+		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
 		return
 	}
 
