@@ -121,11 +121,11 @@ func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 	param := request.PathValue("count")
 	slog.Debug("Path param", "val", param)
 	if param != "" {
-		conv, err := strconv.Atoi(param)
+		conv, err := strconv.ParseUint(param, 10, 0)
 		if err != nil {
 			slog.Warn("Failed to convert parameter, using default", "param", param, "err", err)
 		} else {
-			count = conv
+			count = int(conv)
 		}
 	}
 
