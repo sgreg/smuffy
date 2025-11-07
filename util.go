@@ -53,7 +53,7 @@ func GetEnvInt(key string, fallback int) int {
 		if parseInt, err := strconv.Atoi(value); err == nil {
 			return parseInt
 		} else {
-			slog.Warn("Failed to parse env var key '%s', using fallback %d", key, fallback)
+			slog.Warn("Failed to parse env var key, using fallback", "key", key, "fallback", fallback)
 		}
 	}
 	return fallback
