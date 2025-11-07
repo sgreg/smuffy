@@ -24,6 +24,9 @@ func HandlersSetup() {
 	http.HandleFunc("GET /now", handleGetNow)
 	http.HandleFunc("GET /songmap", handleGetSongMap)
 	http.HandleFunc("GET /last/{count...}", handleGetLast)
+	http.HandleFunc("POST /start", handlePostStart)
+	http.HandleFunc("POST /stop", handlePostStop)
+	http.HandleFunc("POST /toggle", handlePostToggle)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Request not found", "method", r.Method, "url", r.URL.String())
 		w.WriteHeader(http.StatusNotFound)
@@ -73,7 +76,13 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 }
 
 func handleIndex(writer http.ResponseWriter, _ *http.Request) {
-	data := struct{ Username string }{Username: username}
+	data := struct {
+		Username string
+		Running  bool
+	}{
+		Username: username,
+		Running:  running,
+	}
 	if err := renderTemplate(writer, "templates/index.html", data); err != nil {
 		return
 	}
@@ -142,6 +151,44 @@ func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 	}
 	data := struct{ Items []string }{Items: last}
 	if err := renderTemplate(writer, "templates/snippets/last.html", data); err != nil {
+		return
+	}
+}
+
+// can't decide yet which way to go, /start and /stop or just /toggle, or maybe even finding use for both
+
+func handlePostStart(writer http.ResponseWriter, _ *http.Request) {
+	if running {
+		http.Error(writer, "Already started", http.StatusBadRequest)
+		return
+	}
+	startCh <- struct{}{}
+	renderSpotifyRunState(writer, true)
+}
+
+func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
+	if !running {
+		http.Error(writer, "Already stopped", http.StatusBadRequest)
+		return
+	}
+	stopCh <- struct{}{}
+	renderSpotifyRunState(writer, false)
+}
+
+func handlePostToggle(writer http.ResponseWriter, _ *http.Request) {
+	if running {
+		stopCh <- struct{}{}
+	} else {
+		startCh <- struct{}{}
+	}
+
+	// the 'running' value itself is set in spotify module, invert it manually for the response
+	renderSpotifyRunState(writer, !running)
+}
+
+func renderSpotifyRunState(writer http.ResponseWriter, state bool) {
+	data := struct{ Running bool }{Running: state}
+	if err := renderTemplate(writer, "templates/snippets/startstop.html", data); err != nil {
 		return
 	}
 }

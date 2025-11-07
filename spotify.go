@@ -22,6 +22,9 @@ var (
 	songsMap = make(map[spotify.ID]string)
 	username = "guest"
 	state    = "abc123"
+	running  = false
+	startCh  = make(chan struct{})
+	stopCh   = make(chan struct{})
 )
 
 func createSpotifyAuth() *spotifyauth.Authenticator {
@@ -37,7 +40,8 @@ func createSpotifyAuth() *spotifyauth.Authenticator {
 	)
 }
 
-func SpotifyClientSetup() {
+func SpotifyClientSetup(autostartEnabled bool) {
+	running = autostartEnabled
 	auth = createSpotifyAuth()
 	slog.Debug("Trying to load cached token")
 	token, err := LoadToken()
@@ -78,6 +82,24 @@ func SpotifyPlaylistDump() {
 	loadPlaylistToMap(ctx, client, playlistId)
 
 	for {
+		waitForStart()
+		handlePlaylist(ctx, playlistId, waitDuration)
+	}
+}
+
+func waitForStart() {
+	if !running {
+		slog.Debug("Waiting for things to actually start")
+		<-startCh
+		running = true
+		slog.Debug("Things are starting NOW!")
+	}
+}
+
+func handlePlaylist(ctx context.Context, playlistId spotify.ID, waitDuration time.Duration) {
+	trigger := make(chan struct{})
+
+	for {
 		playing, err := GetCurrentlyPlaying(ctx)
 		if err != nil {
 			slog.Error("Cannot get what's playing now", "err", err)
@@ -105,7 +127,20 @@ func SpotifyPlaylistDump() {
 			updatePlaylist(ctx, client, playlistId, newSongs)
 		}
 
-		time.Sleep(waitDuration)
+		go func() {
+			time.Sleep(waitDuration)
+			trigger <- struct{}{}
+		}()
+
+		select {
+		case <-trigger:
+			slog.Debug("Trigger triggered")
+
+		case <-stopCh:
+			slog.Debug("stopCh triggered")
+			running = false
+			return
+		}
 	}
 }
 

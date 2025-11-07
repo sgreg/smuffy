@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"log/slog"
 	"os"
@@ -15,6 +16,9 @@ var (
 )
 
 func main() {
+	spotifyAutostart := flag.Bool("autostart", false, "Start Spotify handling right away")
+	flag.Parse()
+
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file", err)
 	}
@@ -24,7 +28,7 @@ func main() {
 	HandlersSetup()
 	go HandlersRun()
 
-	SpotifyClientSetup()
+	SpotifyClientSetup(*spotifyAutostart)
 	go SpotifyPlaylistDump()
 
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)

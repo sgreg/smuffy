@@ -1,0 +1,2 @@
+Spotify handling is {{if .Running}}running{{else}}stopped{{end}},
+<a href="#" hx-post="/toggle" hx-target="#runstate" hx-swap="innerHTML">{{if .Running}}STOP{{else}}START{{end}}</a>

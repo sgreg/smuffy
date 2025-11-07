@@ -16,10 +16,20 @@
             border: 1px solid #ddd;
             border-radius: 8px
         }
+
+        #runstate {
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body>
 <h1>Hello, {{.Username}}</h1>
+
+<div id="runstate">
+    Spotify handling is {{if .Running}}running{{else}}stopped{{end}},
+    <a href="#" hx-post="/toggle" hx-target="#runstate" hx-swap="innerHTML">{{if .Running}}STOP{{else}}START{{end}}</a>
+</div>
+
 <nav>
     <a href="#" hx-get="/now" hx-target="#content" hx-swap="innerHTML">Now Playing</a> |
     <a href="#" hx-get="/last/5" hx-target="#content" hx-swap="innerHTML">Last 5 songs</a> |
