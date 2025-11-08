@@ -23,6 +23,10 @@
     </style>
 </head>
 <body>
+{{if not .Username}}
+<h1>Authentication with Spotify is needed</h1>
+<a href="{{.AuthUrl}}">Authenticate with Spotify</a>
+{{else}}
 <h1>Hello, {{.Username}}</h1>
 
 <div id="runstate">
@@ -45,5 +49,6 @@
 <div id="content" class="box" hx-get="/now" hx-trigger="load" hx-swap="innerHTML">
     <em>Loading last 5 songs…</em>
 </div>
+{{end}}
 </body>
 </html>

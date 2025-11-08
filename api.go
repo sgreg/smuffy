@@ -83,12 +83,22 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 		slog.Warn("Failed to save token", "err", err)
 	}
 
-	fmt.Fprintf(writer, "Login Completed!")
 	tokenCh <- token
+	writer.Header().Set("Refresh", "3; url=/")
+	if err := renderTemplate(writer, "templates/authdone.html", nil); err != nil {
+		http.Error(writer, "Something went wrong", http.StatusInternalServerError)
+		return
+	}
 }
 
 func handleIndex(writer http.ResponseWriter, _ *http.Request) {
-	data := struct{ Username string }{Username: username}
+	data := struct {
+		Username string
+		AuthUrl  string
+	}{
+		Username: username,
+		AuthUrl:  authUrl,
+	}
 	if err := renderTemplate(writer, "templates/index.html", data); err != nil {
 		return
 	}

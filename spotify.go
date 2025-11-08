@@ -26,8 +26,9 @@ var (
 	playlist PlaylistInfo
 	songsMap map[spotify.ID]string
 	tokenCh        = make(chan *oauth2.Token)
-	username       = "guest"
-	userId         = "guest"
+	username       = ""
+	userId         = ""
+	authUrl        = ""
 	state          = "abc123"
 	running        = false
 	startCh        = make(chan struct{})
@@ -58,8 +59,8 @@ func SpotifyClientSetup(autostartEnabled bool) {
 	token, err := LoadToken()
 	if err != nil {
 		slog.Info("Token not found, or unable to parse, auth required")
-		url := auth.AuthURL(state)
-		fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
+		authUrl = auth.AuthURL(state)
+		fmt.Println("Please log in to Spotify by visiting the following page in your browser:", authUrl)
 		// wait for auth to complete
 		token = <-tokenCh
 	} else {
@@ -81,6 +82,7 @@ func SpotifyClientSetup(autostartEnabled bool) {
 		username = user.ID
 	}
 	userId = user.ID
+	authUrl = ""
 }
 
 func SpotifyPlaylistDump(skipActivateDefaultPlaylist bool) {
