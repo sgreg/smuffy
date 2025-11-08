@@ -17,7 +17,7 @@
             border-radius: 8px
         }
 
-        #runstate {
+        #playlist {
             margin-bottom: 1rem;
         }
     </style>
@@ -26,8 +26,13 @@
 <h1>Hello, {{.Username}}</h1>
 
 <div id="runstate">
-    <div hx-get="/toggle" hx-target="#runstate" hx-swap="innerHTML" hx-trigger="load">
+    <div hx-get="/runstate" hx-target="#runstate" hx-swap="innerHTML" hx-trigger="load">
         Loading run state
+    </div>
+</div>
+<div id="playlist">
+    <div hx-get="/playlist-active" hx-target="#playlist" hx-swap="innerHTML" hx-trigger="load">
+        Loading active playlist
     </div>
 </div>
 

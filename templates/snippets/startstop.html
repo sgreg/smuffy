@@ -1,5 +1,7 @@
 Spotify handling is {{if .Running}}running{{else}}stopped{{end}},
-<a href="#" hx-post="/toggle" hx-target="#runstate" hx-swap="innerHTML">{{if .Running}}STOP{{else}}START{{end}}</a>
 {{if not .Running}}
+<a href="#" hx-post="/start" hx-target="#runstate" hx-swap="innerHTML">START</a>
 <a href="#" hx-get="/startlist" hx-target="#content" hx-swap="innerHTML">Set starting point</a>
+{{else}}
+<a href="#" hx-post="/stop" hx-target="#runstate" hx-swap="innerHTML">STOP</a>
 {{end}}

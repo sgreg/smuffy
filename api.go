@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/zmb3/spotify/v2"
 )
 
 const httpHandlersHost = ""
@@ -21,6 +23,9 @@ func HandlersSetup() {
 	http.HandleFunc("GET /callback", handleSpotifyCallback)
 	http.HandleFunc("GET /{$}", handleIndex)
 	http.HandleFunc("GET /playlists", handleGetPlaylists)
+	http.HandleFunc("GET /playlist-active", handleGetPlaylistActive)
+	http.HandleFunc("GET /playlist-select", handleGetPlaylistSelect)
+	http.HandleFunc("POST /playlist-select/{id}", handlePostPlaylistSelect)
 	http.HandleFunc("GET /now", handleGetNow)
 	http.HandleFunc("GET /songmap", handleGetSongMap)
 	http.HandleFunc("GET /last", handleGetLast)
@@ -30,10 +35,10 @@ func HandlersSetup() {
 	http.HandleFunc("GET /last-after/{timestamp}", handleGetLastAfter)
 	http.HandleFunc("GET /last-after/{timestamp}/{count}", handleGetLastAfter)
 	http.HandleFunc("GET /startlist", handleGetStartList)
+	http.HandleFunc("GET /runstate", handleGetRunState)
 	http.HandleFunc("POST /start", handlePostStart)
 	http.HandleFunc("POST /start/{timestamp}", handlePostStart)
 	http.HandleFunc("POST /stop", handlePostStop)
-	http.HandleFunc("/toggle", handleToggle)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Request not found", "method", r.Method, "url", r.URL.String())
 		w.WriteHeader(http.StatusNotFound)
@@ -83,13 +88,7 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 }
 
 func handleIndex(writer http.ResponseWriter, _ *http.Request) {
-	data := struct {
-		Username string
-		Running  bool
-	}{
-		Username: username,
-		Running:  running,
-	}
+	data := struct{ Username string }{Username: username}
 	if err := renderTemplate(writer, "templates/index.html", data); err != nil {
 		return
 	}
@@ -114,6 +113,51 @@ func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
 	}
 	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
 	if err := renderTemplate(writer, "templates/snippets/playlists.html", data); err != nil {
+		return
+	}
+}
+
+func handleGetPlaylistActive(writer http.ResponseWriter, _ *http.Request) {
+	playlistName := playlist.Name
+	data := struct{ Playlist string }{Playlist: playlistName}
+	if err := renderTemplate(writer, "templates/snippets/playlist-active.html", data); err != nil {
+		return
+	}
+}
+
+func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
+	ctx := context.Background()
+	items, err := GetPlaylists(ctx)
+	if err != nil {
+		slog.Warn("Failed to get playlists", "err", err)
+		http.Error(writer, "Failed to get playlists", http.StatusInternalServerError)
+		return
+	}
+	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
+	if err := renderTemplate(writer, "templates/snippets/playlist-select.html", data); err != nil {
+		return
+	}
+}
+
+func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request) {
+	ctx := context.Background()
+	playlistId := spotify.ID(request.PathValue("id"))
+
+	if !ValidatePlaylist(ctx, playlistId) {
+		slog.Warn("Playlist validation failed", "id", playlistId)
+		http.Error(writer, "Failed to get playlist", http.StatusNotFound)
+		return
+	}
+
+	if running {
+		slog.Info("Shutting down current playlist handling", "id", playlist.ID, "name", playlist.Name)
+		stopCh <- struct{}{}
+	}
+
+	ActivatePlaylist(ctx, client, playlistId) // FIXME why is client always passed around, it's global anyway?
+
+	data := struct{ Playlist string }{Playlist: playlist.Name}
+	if err := renderTemplate(writer, "templates/snippets/playlist-active.html", data); err != nil {
 		return
 	}
 }
@@ -214,11 +258,19 @@ func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
-// can't decide yet which way to go, /start and /stop or just /toggle, or maybe even finding use for both
+func handleGetRunState(writer http.ResponseWriter, _ *http.Request) {
+	renderSpotifyRunState(writer, running)
+}
 
 func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 	if running {
 		http.Error(writer, "Already started", http.StatusBadRequest)
+		return
+	}
+	if playlist.ID == "" {
+		// TODO show some error on the UI somewhere in that case
+		slog.Warn("Start requested but no playlist selected")
+		http.Error(writer, "No playlist selected", http.StatusBadRequest)
 		return
 	}
 	timestamp := parseParamUint(request, "timestamp", 0)
@@ -236,25 +288,6 @@ func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
 	}
 	stopCh <- struct{}{}
 	renderSpotifyRunState(writer, false)
-}
-
-func handleToggle(writer http.ResponseWriter, request *http.Request) {
-	var runningState = running
-
-	if request.Method == "POST" {
-		if running {
-			stopCh <- struct{}{}
-		} else {
-			startCh <- struct{}{}
-		}
-		// "running" value itself is updated on the channels' receiving ends, so inverting it manually here
-		runningState = !runningState
-
-	} else if request.Method != "GET" {
-		http.Error(writer, "Not Found", http.StatusNotFound)
-	}
-
-	renderSpotifyRunState(writer, runningState)
 }
 
 func renderSpotifyRunState(writer http.ResponseWriter, state bool) {

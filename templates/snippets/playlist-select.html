@@ -1,0 +1,12 @@
+<h3>Select the playlist to use</h3>
+<ul>
+    {{- if .Playlists }}
+    {{- range .Playlists }}
+    <li><a href="#" hx-post="/playlist-select/{{ .ID }}" hx-target="#playlist" hx-swap="innerHTML">{{ .Name }} <small>({{ .ID }})</small></a></li>
+    {{- end }}
+    {{- else }}
+    <li><em>No playlists found</em></li>
+    {{- end }}
+</ul>
+
+<a href="#">Create New Playlist</a> (TODO)

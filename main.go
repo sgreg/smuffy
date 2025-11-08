@@ -17,7 +17,12 @@ var (
 
 func main() {
 	spotifyAutostart := flag.Bool("autostart", false, "Start Spotify handling right away")
+	spotifyNoPlaylist := flag.Bool("no-playlist", false, "Don't activate the default playlist defined in .env")
 	flag.Parse()
+
+	if *spotifyAutostart && *spotifyNoPlaylist {
+		log.Fatal("Cannot have autostart without a default playlist")
+	}
 
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file", err)
@@ -29,7 +34,7 @@ func main() {
 	go HandlersRun()
 
 	SpotifyClientSetup(*spotifyAutostart)
-	go SpotifyPlaylistDump()
+	go SpotifyPlaylistDump(*spotifyNoPlaylist)
 
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 	<-signalCh

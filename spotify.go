@@ -15,12 +15,19 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type PlaylistInfo struct {
+	Name string
+	ID   spotify.ID
+}
+
 var (
 	auth     *spotifyauth.Authenticator
 	client   *spotify.Client
+	playlist PlaylistInfo
+	songsMap map[spotify.ID]string
 	tokenCh        = make(chan *oauth2.Token)
-	songsMap       = make(map[spotify.ID]string)
 	username       = "guest"
+	userId         = "guest"
 	state          = "abc123"
 	running        = false
 	startCh        = make(chan struct{})
@@ -73,43 +80,55 @@ func SpotifyClientSetup(autostartEnabled bool) {
 	} else {
 		username = user.ID
 	}
+	userId = user.ID
 }
 
-func SpotifyPlaylistDump() {
-	playlistId := spotify.ID(GetEnvString("SPOTIFY_PLAYLIST_ID", "invalidListId"))
+func SpotifyPlaylistDump(skipActivateDefaultPlaylist bool) {
+	playlistId := spotify.ID(GetEnvString("SPOTIFY_DEFAULT_PLAYLIST_ID", ""))
 	playlistRequestIntervalMinutes := GetEnvInt("PLAYLIST_REQUEST_INTERVAL_MINUTES", 10)
 	slog.Debug("Setting up Spotify Playlist Dumper")
 	waitDuration := time.Duration(playlistRequestIntervalMinutes) * time.Minute
 
 	ctx := context.Background()
 
-	loadPlaylistToMap(ctx, client, playlistId)
+	if skipActivateDefaultPlaylist {
+		slog.Info("Skipping default playlist activation, make sure to select one via web UI")
+	} else if playlistId == "" {
+		slog.Warn("No default playlist defined, make sure to select one via web UI")
+	} else {
+		slog.Debug("Default playlist selected", "id", playlistId)
+		ActivatePlaylist(ctx, client, playlistId)
+	}
 
 	for {
 		waitForStart()
-		handlePlaylistLoop(ctx, playlistId, waitDuration)
+		handlePlaylistLoop(ctx, waitDuration)
 	}
 }
 
 func waitForStart() {
-	if !running {
+	for !running {
 		slog.Debug("Waiting for things to actually start")
 		<-startCh
-		running = true
-		slog.Debug("Things are starting NOW!")
+		if playlist.ID == "" {
+			slog.Error("Start triggered but no playlist selected, not doing anything")
+		} else {
+			running = true
+		}
 	}
+	slog.Debug("Things are starting NOW!")
 }
 
-func handlePlaylistLoop(ctx context.Context, playlistId spotify.ID, waitDuration time.Duration) {
+func handlePlaylistLoop(ctx context.Context, waitDuration time.Duration) {
 	for {
-		processPlaylist(ctx, playlistId)
+		processPlaylist(ctx)
 
 		select {
 		case <-stopCh:
 			slog.Debug("stopCh triggered")
 			running = false
 			slog.Debug("Processing one last time the playlist")
-			processPlaylist(ctx, playlistId)
+			processPlaylist(ctx)
 			return
 
 		case <-time.After(waitDuration):
@@ -118,7 +137,7 @@ func handlePlaylistLoop(ctx context.Context, playlistId spotify.ID, waitDuration
 	}
 }
 
-func processPlaylist(ctx context.Context, playlistId spotify.ID) {
+func processPlaylist(ctx context.Context) {
 	// my function naming game is going very well right now ...
 
 	playing, err := GetCurrentlyPlaying(ctx)
@@ -144,7 +163,7 @@ func processPlaylist(ctx context.Context, playlistId spotify.ID) {
 				newSongs = append(newSongs, item.Track.ID)
 			}
 		}
-		updatePlaylist(ctx, client, playlistId, newSongs)
+		updatePlaylist(ctx, client, newSongs)
 		lastTime = time.Now().UnixMilli() - checkTimeBufferMs
 	}
 }
@@ -153,19 +172,23 @@ func formatTrack(track spotify.SimpleTrack) string {
 	return fmt.Sprintf("%s - %s", track.Artists[0].Name, track.Name)
 }
 
-func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId spotify.ID) {
-	slog.Debug("Getting predefined playlist tracks")
-	playlist, err := client.GetPlaylist(ctx, playlistId)
+func ActivatePlaylist(ctx context.Context, client *spotify.Client, playlistId spotify.ID) {
+	slog.Debug("Activating playlist", "id", playlistId)
+	plist, err := client.GetPlaylist(ctx, playlistId)
 	if err != nil {
-		slog.Error("Cannot get playlist", "id", playlistId)
+		slog.Error("Cannot get playlist", "id", plist)
 		// The whole point is to manage playlists, so not much to continue here now
 		signalCh <- syscall.SIGTERM
 		return
 	}
 
+	playlist.ID = plist.ID
+	playlist.Name = plist.Name
+	songsMap = make(map[spotify.ID]string)
+
 	for {
-		slog.Info("Playlist received", "name", playlist.Name, "tracks", len(playlist.Tracks.Tracks), "total", playlist.Tracks.Total)
-		for index, item := range playlist.Tracks.Tracks {
+		slog.Info("Playlist received", "name", plist.Name, "tracks", len(plist.Tracks.Tracks), "total", plist.Tracks.Total)
+		for index, item := range plist.Tracks.Tracks {
 			slog.Info(fmt.Sprintf("    %02d: [%s] %s",
 				index+1,
 				item.Track.ID,
@@ -175,7 +198,7 @@ func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId s
 		}
 
 		// see https://github.com/zmb3/spotify/blob/master/examples/paging/page.go
-		err = client.NextPage(ctx, &playlist.Tracks)
+		err = client.NextPage(ctx, &plist.Tracks)
 		if err != nil {
 			if !errors.Is(err, spotify.ErrNoMorePages) {
 				slog.Error("Error while retrieving playlist track page", "err", err)
@@ -183,6 +206,8 @@ func loadPlaylistToMap(ctx context.Context, client *spotify.Client, playlistId s
 			break
 		}
 	}
+
+	slog.Debug("Playlist activated", "id", playlist.ID, "name", playlist.Name)
 }
 
 func addToMap(track spotify.SimpleTrack) bool {
@@ -194,7 +219,7 @@ func addToMap(track spotify.SimpleTrack) bool {
 	return !found
 }
 
-func updatePlaylist(ctx context.Context, client *spotify.Client, playlistId spotify.ID, newSongs []spotify.ID) {
+func updatePlaylist(ctx context.Context, client *spotify.Client, newSongs []spotify.ID) {
 	if len(newSongs) == 0 {
 		slog.Debug("Updating playlist skipped, no new songs")
 		return
@@ -203,17 +228,12 @@ func updatePlaylist(ctx context.Context, client *spotify.Client, playlistId spot
 	// reverse list to add in the order they were played
 	slices.Reverse(newSongs)
 	slog.Debug("Updating playlist", "newSongsCount", len(newSongs), "songIds", newSongs)
-	snapshot, err := client.AddTracksToPlaylist(ctx, playlistId, newSongs...)
+	snapshot, err := client.AddTracksToPlaylist(ctx, playlist.ID, newSongs...)
 	if err != nil {
 		slog.Warn("Failed to update playlist", "err", err)
 		return
 	}
 	slog.Debug("Playlist updated", "snapshot ID", snapshot)
-}
-
-type PlaylistInfo struct {
-	Name string
-	ID   string
 }
 
 func GetPlaylists(ctx context.Context) ([]PlaylistInfo, error) {
@@ -226,9 +246,22 @@ func GetPlaylists(ctx context.Context) ([]PlaylistInfo, error) {
 	}
 	items := make([]PlaylistInfo, 0, len(page.Playlists))
 	for _, p := range page.Playlists {
-		items = append(items, PlaylistInfo{Name: p.Name, ID: p.ID.String()})
+		items = append(items, PlaylistInfo{Name: p.Name, ID: p.ID})
 	}
 	return items, nil
+}
+
+func ValidatePlaylist(ctx context.Context, id spotify.ID) bool {
+	plist, err := client.GetPlaylist(ctx, id)
+	if err != nil {
+		slog.Warn("Failed to get playlist", "id", id, "err", err)
+		return false
+	}
+
+	slog.Info("Playlist found", "id", id, "name", plist.Name, "owner", plist.Owner.ID)
+
+	// Could also consider to check ` || plist.Collaborative`, but let's only care for our own playlists for now
+	return plist.Owner.ID == userId
 }
 
 func GetCurrentlyPlaying(ctx context.Context) (string, error) {
