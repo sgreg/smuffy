@@ -26,8 +26,9 @@
 <h1>Hello, {{.Username}}</h1>
 
 <div id="runstate">
-    Spotify handling is {{if .Running}}running{{else}}stopped{{end}},
-    <a href="#" hx-post="/toggle" hx-target="#runstate" hx-swap="innerHTML">{{if .Running}}STOP{{else}}START{{end}}</a>
+    <div hx-get="/toggle" hx-target="#runstate" hx-swap="innerHTML" hx-trigger="load">
+        Loading run state
+    </div>
 </div>
 
 <nav>

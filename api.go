@@ -26,7 +26,7 @@ func HandlersSetup() {
 	http.HandleFunc("GET /last/{count...}", handleGetLast)
 	http.HandleFunc("POST /start", handlePostStart)
 	http.HandleFunc("POST /stop", handlePostStop)
-	http.HandleFunc("POST /toggle", handlePostToggle)
+	http.HandleFunc("/toggle", handleToggle)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Request not found", "method", r.Method, "url", r.URL.String())
 		w.WriteHeader(http.StatusNotFound)
@@ -175,15 +175,23 @@ func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
 	renderSpotifyRunState(writer, false)
 }
 
-func handlePostToggle(writer http.ResponseWriter, _ *http.Request) {
-	if running {
-		stopCh <- struct{}{}
-	} else {
-		startCh <- struct{}{}
+func handleToggle(writer http.ResponseWriter, request *http.Request) {
+	var runningState = running
+
+	if request.Method == "POST" {
+		if running {
+			stopCh <- struct{}{}
+		} else {
+			startCh <- struct{}{}
+		}
+		// "running" value itself is updated on the channels' receiving ends, so inverting it manually here
+		runningState = !runningState
+
+	} else if request.Method != "GET" {
+		http.Error(writer, "Not Found", http.StatusNotFound)
 	}
 
-	// the 'running' value itself is set in spotify module, invert it manually for the response
-	renderSpotifyRunState(writer, !running)
+	renderSpotifyRunState(writer, runningState)
 }
 
 func renderSpotifyRunState(writer http.ResponseWriter, state bool) {
