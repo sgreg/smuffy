@@ -18,14 +18,18 @@ import (
 var (
 	auth     *spotifyauth.Authenticator
 	client   *spotify.Client
-	tokenCh  = make(chan *oauth2.Token)
-	songsMap = make(map[spotify.ID]string)
-	username = "guest"
-	state    = "abc123"
-	running  = false
-	startCh  = make(chan struct{})
-	stopCh   = make(chan struct{})
+	tokenCh        = make(chan *oauth2.Token)
+	songsMap       = make(map[spotify.ID]string)
+	username       = "guest"
+	state          = "abc123"
+	running        = false
+	startCh        = make(chan struct{})
+	stopCh         = make(chan struct{})
+	lastTime int64 = 0
 )
+
+// Time offset when updating lastTime after processing a playlist, just in case
+const checkTimeBufferMs = 60 * 1000 // 1 Minute
 
 func createSpotifyAuth() *spotifyauth.Authenticator {
 	redirectUri := GetEnvString("SPOTIFY_REDIRECT_URL", "http://localhost:12345/callback")
@@ -124,8 +128,7 @@ func processPlaylist(ctx context.Context, playlistId spotify.ID) {
 		slog.Info("Playing: " + playing)
 	}
 
-	// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time? (nope, it just needs milliseconds and not seconds)
-	songs, err := client.PlayerRecentlyPlayed(ctx)
+	songs, err := GetLastSongs(ctx, 50, lastTime)
 	if err != nil {
 		slog.Error("Cannot get recently played", "err", err)
 	} else {
@@ -142,6 +145,7 @@ func processPlaylist(ctx context.Context, playlistId spotify.ID) {
 			}
 		}
 		updatePlaylist(ctx, client, playlistId, newSongs)
+		lastTime = time.Now().UnixMilli() - checkTimeBufferMs
 	}
 }
 
