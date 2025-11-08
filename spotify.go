@@ -83,7 +83,7 @@ func SpotifyPlaylistDump() {
 
 	for {
 		waitForStart()
-		handlePlaylist(ctx, playlistId, waitDuration)
+		handlePlaylistLoop(ctx, playlistId, waitDuration)
 	}
 }
 
@@ -96,51 +96,52 @@ func waitForStart() {
 	}
 }
 
-func handlePlaylist(ctx context.Context, playlistId spotify.ID, waitDuration time.Duration) {
-	trigger := make(chan struct{})
-
+func handlePlaylistLoop(ctx context.Context, playlistId spotify.ID, waitDuration time.Duration) {
 	for {
-		playing, err := GetCurrentlyPlaying(ctx)
-		if err != nil {
-			slog.Error("Cannot get what's playing now", "err", err)
-		} else {
-			slog.Info("Playing: " + playing)
-		}
-
-		// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time?
-		songs, err := client.PlayerRecentlyPlayed(ctx)
-		if err != nil {
-			slog.Error("Cannot get recently played", "err", err)
-		} else {
-			slog.Info("Recently played:")
-			var newSongs []spotify.ID
-			for index, item := range songs {
-				slog.Info(fmt.Sprintf("    %02d: [%s] %s",
-					index+1,
-					item.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
-					formatTrack(item.Track),
-				))
-				if addToMap(item.Track) {
-					newSongs = append(newSongs, item.Track.ID)
-				}
-			}
-			updatePlaylist(ctx, client, playlistId, newSongs)
-		}
-
-		go func() {
-			time.Sleep(waitDuration)
-			trigger <- struct{}{}
-		}()
+		processPlaylist(ctx, playlistId)
 
 		select {
-		case <-trigger:
-			slog.Debug("Trigger triggered")
-
 		case <-stopCh:
 			slog.Debug("stopCh triggered")
 			running = false
+			slog.Debug("Processing one last time the playlist")
+			processPlaylist(ctx, playlistId)
 			return
+
+		case <-time.After(waitDuration):
+			slog.Debug("Periodic playlist processing triggered")
 		}
+	}
+}
+
+func processPlaylist(ctx context.Context, playlistId spotify.ID) {
+	// my function naming game is going very well right now ...
+
+	playing, err := GetCurrentlyPlaying(ctx)
+	if err != nil {
+		slog.Error("Cannot get what's playing now", "err", err)
+	} else {
+		slog.Info("Playing: " + playing)
+	}
+
+	// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time?
+	songs, err := client.PlayerRecentlyPlayed(ctx)
+	if err != nil {
+		slog.Error("Cannot get recently played", "err", err)
+	} else {
+		slog.Info("Recently played:")
+		var newSongs []spotify.ID
+		for index, item := range songs {
+			slog.Info(fmt.Sprintf("    %02d: [%s] %s",
+				index+1,
+				item.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
+				formatTrack(item.Track),
+			))
+			if addToMap(item.Track) {
+				newSongs = append(newSongs, item.Track.ID)
+			}
+		}
+		updatePlaylist(ctx, client, playlistId, newSongs)
 	}
 }
 
