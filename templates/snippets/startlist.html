@@ -1,0 +1,10 @@
+<h3>Pick the first song where handling should start</h3>
+<ol>
+    {{- if .Items }}
+    {{- range .Items }}
+    <li><a href="#" hx-post="/start/{{ .Timestamp }}" hx-target="#runstate" hx-swap="innerHTML">{{ .Name }}</a></li>
+    {{- end }}
+    {{- else }}
+    <li><em>No songs yet</em></li>
+    {{- end }}
+</ol>

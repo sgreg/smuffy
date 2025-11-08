@@ -29,7 +29,9 @@ func HandlersSetup() {
 	http.HandleFunc("GET /last-before/{timestamp}/{count}", handleGetLastBefore)
 	http.HandleFunc("GET /last-after/{timestamp}", handleGetLastAfter)
 	http.HandleFunc("GET /last-after/{timestamp}/{count}", handleGetLastAfter)
+	http.HandleFunc("GET /startlist", handleGetStartList)
 	http.HandleFunc("POST /start", handlePostStart)
+	http.HandleFunc("POST /start/{timestamp}", handlePostStart)
 	http.HandleFunc("POST /stop", handlePostStop)
 	http.HandleFunc("/toggle", handleToggle)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -186,12 +188,42 @@ func handleLast(writer http.ResponseWriter, count int, timestamp int64) {
 	}
 }
 
+func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
+	songs, err := GetLastSongs(context.Background(), 50, 0)
+	if err != nil {
+		slog.Warn("Failed to get last played songs", "err", err)
+		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
+		return
+	}
+
+	type lastSongData struct {
+		Name      string
+		Timestamp int64
+	}
+
+	var last []lastSongData
+	for _, song := range songs {
+		last = append(last, lastSongData{
+			Name:      formatTrack(song.Track),
+			Timestamp: song.PlayedAt.Unix() * 1000, // round down to zero the ms part as some buffer
+		})
+	}
+	data := struct{ Items []lastSongData }{Items: last}
+	if err := renderTemplate(writer, "templates/snippets/startlist.html", data); err != nil {
+		return
+	}
+}
+
 // can't decide yet which way to go, /start and /stop or just /toggle, or maybe even finding use for both
 
-func handlePostStart(writer http.ResponseWriter, _ *http.Request) {
+func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 	if running {
 		http.Error(writer, "Already started", http.StatusBadRequest)
 		return
+	}
+	timestamp := parseParamUint(request, "timestamp", 0)
+	if timestamp > 0 {
+		lastTime = timestamp
 	}
 	startCh <- struct{}{}
 	renderSpotifyRunState(writer, true)
