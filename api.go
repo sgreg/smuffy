@@ -78,9 +78,11 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 		log.Fatalf("State mismatch: %s != %s\n", st, state)
 	}
 
-	slog.Debug("Saving token", "file", SpotifyTokenCacheFile)
-	if err := SaveToken(token); err != nil {
-		slog.Warn("Failed to save token", "err", err)
+	if GetEnvInt("CACHE_AUTH_TOKEN", 0) == 1 {
+		slog.Debug("Saving token", "file", SpotifyTokenCacheFile)
+		if err := SaveToken(token); err != nil {
+			slog.Warn("Failed to save token", "err", err)
+		}
 	}
 
 	tokenCh <- token
