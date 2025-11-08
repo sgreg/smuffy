@@ -23,7 +23,12 @@ func HandlersSetup() {
 	http.HandleFunc("GET /playlists", handleGetPlaylists)
 	http.HandleFunc("GET /now", handleGetNow)
 	http.HandleFunc("GET /songmap", handleGetSongMap)
-	http.HandleFunc("GET /last/{count...}", handleGetLast)
+	http.HandleFunc("GET /last", handleGetLast)
+	http.HandleFunc("GET /last/{count}", handleGetLast)
+	http.HandleFunc("GET /last-before/{timestamp}", handleGetLastBefore)
+	http.HandleFunc("GET /last-before/{timestamp}/{count}", handleGetLastBefore)
+	http.HandleFunc("GET /last-after/{timestamp}", handleGetLastAfter)
+	http.HandleFunc("GET /last-after/{timestamp}/{count}", handleGetLastAfter)
 	http.HandleFunc("POST /start", handlePostStart)
 	http.HandleFunc("POST /stop", handlePostStop)
 	http.HandleFunc("/toggle", handleToggle)
@@ -126,19 +131,39 @@ func handleGetNow(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func handleGetLast(writer http.ResponseWriter, request *http.Request) {
-	var count = 5
-	param := request.PathValue("count")
-	slog.Debug("Path param", "val", param)
+	count := parseParamUint(request, "count", 5)
+	handleLast(writer, int(count), 0)
+}
+
+func handleGetLastBefore(writer http.ResponseWriter, request *http.Request) {
+	timestamp := parseParamUint(request, "timestamp", 0)
+	count := parseParamUint(request, "count", 50)
+	handleLast(writer, int(count), -timestamp)
+}
+
+func handleGetLastAfter(writer http.ResponseWriter, request *http.Request) {
+	timestamp := parseParamUint(request, "timestamp", 0)
+	count := parseParamUint(request, "count", 50)
+	handleLast(writer, int(count), timestamp)
+}
+
+func parseParamUint(request *http.Request, paramName string, defaultValue int64) int64 {
+	var value = defaultValue
+	param := request.PathValue(paramName)
+	slog.Debug("Parsing path param", "name", paramName, "value", param)
 	if param != "" {
-		conv, err := strconv.ParseUint(param, 10, 0)
+		conv, err := strconv.ParseUint(param, 10, 64)
 		if err != nil {
-			slog.Warn("Failed to convert parameter, using default", "param", param, "err", err)
+			slog.Warn("Failed to convert parameter, using default", "param", param, "err", err, "default", defaultValue)
 		} else {
-			count = int(conv)
+			value = int64(conv)
 		}
 	}
+	return value
+}
 
-	songs, err := GetLastSongs(context.Background(), count)
+func handleLast(writer http.ResponseWriter, count int, timestamp int64) {
+	songs, err := GetLastSongs(context.Background(), count, timestamp)
 	if err != nil {
 		slog.Warn("Failed to get last played songs", "err", err)
 		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
@@ -146,8 +171,14 @@ func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	var last []string
-	for _, song := range songs {
+	for index, song := range songs {
 		last = append(last, formatTrack(song.Track))
+		slog.Info(fmt.Sprintf("    %02d: [%s](%d) %s",
+			index+1,
+			song.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
+			song.PlayedAt.UnixMilli(),
+			formatTrack(song.Track),
+		))
 	}
 	data := struct{ Items []string }{Items: last}
 	if err := renderTemplate(writer, "templates/snippets/last.html", data); err != nil {

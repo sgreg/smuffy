@@ -124,7 +124,7 @@ func processPlaylist(ctx context.Context, playlistId spotify.ID) {
 		slog.Info("Playing: " + playing)
 	}
 
-	// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time?
+	// TODO try PlayerRecentlyPlayedOpt() with after set to timestamp of last check (and obvs store last check timestamp) ..and maybe experiment with UTC offset from local time? (nope, it just needs milliseconds and not seconds)
 	songs, err := client.PlayerRecentlyPlayed(ctx)
 	if err != nil {
 		slog.Error("Cannot get recently played", "err", err)
@@ -241,7 +241,23 @@ func GetCurrentlyPlaying(ctx context.Context) (string, error) {
 	return formatTrack(playing.Item.SimpleTrack), nil
 }
 
-func GetLastSongs(ctx context.Context, count int) ([]spotify.RecentlyPlayedItem, error) {
+// GetLastSongs requests the last count played songs from the Spotify API.
+//
+// If the timestamp is set to 0, the current date and time are implied.
+//
+// If the timestamp is a positive value, the call requests all played songs after that timestamp.
+// If the given count value is less than the total number of songs played since that timestamp,
+// only the oldest count number of songs is returned.
+//
+// If the imestamp is a negative value, the call requests all played songs before that timestamp.
+// If the given count value is less than the total number of songs played since that timestamp,
+// only the newest count number of songs is returned.
+func GetLastSongs(ctx context.Context, count int, timestamp int64) ([]spotify.RecentlyPlayedItem, error) {
 	opts := spotify.RecentlyPlayedOptions{Limit: spotify.Numeric(count)}
+	if timestamp > 0 {
+		opts.AfterEpochMs = timestamp
+	} else if timestamp < 0 {
+		opts.BeforeEpochMs = -timestamp
+	}
 	return client.PlayerRecentlyPlayedOpt(ctx, &opts)
 }
