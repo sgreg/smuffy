@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -16,7 +15,8 @@ import (
 const httpHandlersHost = ""
 const httpHandlersPort = 58071
 
-func HandlersSetup() {
+// ApiHandlersSetup initializes all the http handlers
+func ApiHandlersSetup() {
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
@@ -27,7 +27,6 @@ func HandlersSetup() {
 	http.HandleFunc("GET /playlist-select", handleGetPlaylistSelect)
 	http.HandleFunc("POST /playlist-select/{id}", handlePostPlaylistSelect)
 	http.HandleFunc("GET /now", handleGetNow)
-	http.HandleFunc("GET /songmap", handleGetSongMap)
 	http.HandleFunc("GET /last", handleGetLast)
 	http.HandleFunc("GET /last/{count}", handleGetLast)
 	http.HandleFunc("GET /last-before/{timestamp}", handleGetLastBefore)
@@ -46,11 +45,14 @@ func HandlersSetup() {
 	})
 }
 
-func HandlersRun() {
+// ApiHandlersRun starts and loops the http server.
+func ApiHandlersRun() {
 	listenAddress := fmt.Sprintf("%s:%d", httpHandlersHost, httpHandlersPort)
 	log.Fatal(http.ListenAndServe(listenAddress, nil))
 }
 
+// renderTemplate takes the given templateFile and data and renders it to the given ResponseWriter.
+// If loading the template or rendering itself fails, http.StatusInternalServerError is returned.
 func renderTemplate(w http.ResponseWriter, templateFile string, data any) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl, err := template.ParseFiles(templateFile)
@@ -67,6 +69,16 @@ func renderTemplate(w http.ResponseWriter, templateFile string, data any) error 
 	return nil
 }
 
+// handleSpotifyCallback http handler is used to finalize the Spotify authentication process.
+// See https://developer.spotify.com/documentation/web-api/tutorials/code-flow for details on that.
+//
+// On successful authentication, this will receive the API token used for future requests.
+// The token is sent via tokenCh channel where SpotifyClientSetup is waiting to read from.
+//
+// If CACHE_AUTH_TOKEN env var is set to 1, the token is cached for future use, and the whole
+// process via Spotify authentication is skipped on the next startup.
+//
+// Renders HTML template to show successful authentication and redirects back home.
 func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 	token, err := auth.Token(request.Context(), state, request)
 	if err != nil {
@@ -93,6 +105,7 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
+// handleIndex http handler renders the home page on index.html
 func handleIndex(writer http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		Username string
@@ -106,16 +119,11 @@ func handleIndex(writer http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func handleGetSongMap(writer http.ResponseWriter, _ *http.Request) {
-	writer.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(writer).Encode(songsMap); err != nil {
-		slog.Warn("Failed to encode songs map", "err", err)
-		http.Error(writer, "Failed to encode to JSON", http.StatusInternalServerError)
-		return
-	}
-}
-
-func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
+// renderPlaylists tries to retrieve the list of playlists for the active Spotify user and renders it.
+// If selectable is true, it will use the 'playlist-select.html' template snippet, otherwise 'playlists.html'.
+//
+// If retrieving the playlists fails, http.StatusInternalServerError is returned instead
+func renderPlaylists(writer http.ResponseWriter, selectable bool) {
 	ctx := context.Background()
 	items, err := GetPlaylists(ctx)
 	if err != nil {
@@ -124,11 +132,25 @@ func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
-	if err := renderTemplate(writer, "templates/snippets/playlists.html", data); err != nil {
+
+	var fileName string
+	if selectable {
+		fileName = "templates/snippets/playlist-select.html"
+	} else {
+		fileName = "templates/snippets/playlists.html"
+	}
+
+	if err := renderTemplate(writer, fileName, data); err != nil {
 		return
 	}
 }
 
+// handleGetPlaylists http handler retrieves and renders the list of playlists for the active Spotify user.
+func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
+	renderPlaylists(writer, false)
+}
+
+// handleGetPlaylistActive http handler renders the status and name of the active playlist if there is one.
 func handleGetPlaylistActive(writer http.ResponseWriter, _ *http.Request) {
 	playlistName := playlist.Name
 	data := struct{ Playlist string }{Playlist: playlistName}
@@ -137,20 +159,18 @@ func handleGetPlaylistActive(writer http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// handleGetPlaylists http handler retrieves and renders the list of playlists for the active Spotify user,
+// intended to select a new playlist to populate from it.
 func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
-	ctx := context.Background()
-	items, err := GetPlaylists(ctx)
-	if err != nil {
-		slog.Warn("Failed to get playlists", "err", err)
-		http.Error(writer, "Failed to get playlists", http.StatusInternalServerError)
-		return
-	}
-	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
-	if err := renderTemplate(writer, "templates/snippets/playlist-select.html", data); err != nil {
-		return
-	}
+	renderPlaylists(writer, true)
 }
 
+// handlePostPlaylistSelect http handler sets up the selected playlist as the new active to one to populate
+// with the recently played songs, assuming it's valid and the current user can modify.
+//
+// If playlist handling is already ongoing, it's stopped first.
+//
+// Renders the new state of active playlist on success.
 func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request) {
 	ctx := context.Background()
 	playlistId := spotify.ID(request.PathValue("id"))
@@ -174,6 +194,7 @@ func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request)
 	}
 }
 
+// handleGetNow http handler renders the currently played song if there is one.
 func handleGetNow(writer http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
 	now, err := GetCurrentlyPlaying(ctx)
@@ -188,23 +209,38 @@ func handleGetNow(writer http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// handleGetLast http handler renders the list of last played songs.
+// An optional 'count' parameter can be added to the url to limit the number of maximum songs to show,
+// defaulting to 5 if omitted.
 func handleGetLast(writer http.ResponseWriter, request *http.Request) {
 	count := parseParamUint(request, "count", 5)
 	handleLast(writer, int(count), 0)
 }
 
+// handleGetLastBefore http handler renders the list of songs played before a given timestamp.
+// An optional 'count' parameter can be added to the url to limit the number of maximum songs to show,
+// defaulting to Spotify's current max value of 50 if omitted.
 func handleGetLastBefore(writer http.ResponseWriter, request *http.Request) {
 	timestamp := parseParamUint(request, "timestamp", 0)
 	count := parseParamUint(request, "count", 50)
 	handleLast(writer, int(count), -timestamp)
 }
 
+// handleGetLastBefore http handler renders the list of songs played after a given timestamp.
+// An optional 'count' parameter can be added to the url to limit the number of maximum songs to show,
+// defaulting to Spotify's current max value of 50 if omitted.
 func handleGetLastAfter(writer http.ResponseWriter, request *http.Request) {
 	timestamp := parseParamUint(request, "timestamp", 0)
 	count := parseParamUint(request, "count", 50)
 	handleLast(writer, int(count), timestamp)
 }
 
+// parseParamUint tries to get the value for the request's path wildcard parameter, expecting an unsigned int,
+// and return it. If the paramName doesn't exist in the request path or fails to render, the given 'defaultValue'
+// is used as a fallback instead.
+//
+// Note that despite parsing an unsinged integer, a signed integer value is returned here, since any place further
+// down the road wants a signed integer anyway, and neither of the path values should be negative.
 func parseParamUint(request *http.Request, paramName string, defaultValue int64) int64 {
 	var value = defaultValue
 	param := request.PathValue(paramName)
@@ -220,6 +256,10 @@ func parseParamUint(request *http.Request, paramName string, defaultValue int64)
 	return value
 }
 
+// handleLast tries to retrieve the list of 'count' last played songs and render it.
+// If a positive timestamp is given, only songs after that timestamp are requested.
+// If a negative timestamp is given, only songs before that timestamp are requested.
+// If the timestamp is zero, no time information is considered.
 func handleLast(writer http.ResponseWriter, count int, timestamp int64) {
 	songs, err := GetLastSongs(context.Background(), count, timestamp)
 	if err != nil {
@@ -244,6 +284,8 @@ func handleLast(writer http.ResponseWriter, count int, timestamp int64) {
 	}
 }
 
+// handleGetStartList http handler retrieves and renders the list of all recently played songs,
+// intended to select a starting point for populating songs into the activated playlist.
 func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
 	songs, err := GetLastSongs(context.Background(), 50, 0)
 	if err != nil {
@@ -270,10 +312,18 @@ func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
+// handleGetRunState http handler renders the current playlist processing run state.
 func handleGetRunState(writer http.ResponseWriter, _ *http.Request) {
 	renderSpotifyRunState(writer, running)
 }
 
+// handlePostStart http handler tries to start the playlist processing by writing to the startCh channel.
+//
+// If processing is already running, http.StatusBadRequest is returned.
+// If no active playlist is selected, http.StatusBadRequest is returned as well, as processing requires one.
+//
+// If a timestamp parameter is given in the request url path, only songs after that time will be added to the
+// playlist, otherwise all the last played songs will be used.
 func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 	if running {
 		http.Error(writer, "Already started", http.StatusBadRequest)
@@ -293,6 +343,9 @@ func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 	renderSpotifyRunState(writer, true)
 }
 
+// handlePostStop http handler tries to stop the playlist processing by writing to the stopCh channel.
+//
+// If processing is not running, http.StatusBadRequest is returned.
 func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
 	if !running {
 		http.Error(writer, "Already stopped", http.StatusBadRequest)
@@ -302,6 +355,7 @@ func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
 	renderSpotifyRunState(writer, false)
 }
 
+// renderSpotifyRunState renders the current playlist processing running state.
 func renderSpotifyRunState(writer http.ResponseWriter, state bool) {
 	data := struct{ Running bool }{Running: state}
 	if err := renderTemplate(writer, "templates/snippets/startstop.html", data); err != nil {

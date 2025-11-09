@@ -39,6 +39,7 @@ var (
 // Time offset when updating lastTime after processing a playlist, just in case
 const checkTimeBufferMs = 60 * 1000 // 1 Minute
 
+// createSpotifyAuth returns a spotifyauth.Authenticator object set up with all required scopes.
 func createSpotifyAuth() *spotifyauth.Authenticator {
 	redirectUri := GetEnvString("SPOTIFY_REDIRECT_URL", "http://localhost:12345/callback")
 
@@ -55,6 +56,11 @@ func createSpotifyAuth() *spotifyauth.Authenticator {
 	)
 }
 
+// SpotifyClientSetup initializes authentication with the Spotify API, creates the spotify.Client object,
+// and gathers the active Spotify user's information.
+//
+// If a token is cached, it tries to load and use it, otherwise it waits for data to read on the tokenCh
+// channel sent by the handleSpotifyCallback http handler on successful API authentication.
 func SpotifyClientSetup(autostartEnabled bool) {
 	running = autostartEnabled
 	auth = createSpotifyAuth()
@@ -70,7 +76,6 @@ func SpotifyClientSetup(autostartEnabled bool) {
 		slog.Debug("Cached token found")
 	}
 
-	// TODO might wanna find a way to update this occasionally (there's probably a proper way to do that in oauth2 package)
 	client = spotify.New(auth.Client(context.Background(), token))
 
 	// use the client to make calls that require authorization
@@ -88,7 +93,8 @@ func SpotifyClientSetup(autostartEnabled bool) {
 	authUrl = ""
 }
 
-func SpotifyPlaylistDump(skipActivateDefaultPlaylist bool) {
+// SpotifyPlaylistHandlerRun starts and loops the Spotify playlist processing.
+func SpotifyPlaylistHandlerRun(skipActivateDefaultPlaylist bool) {
 	playlistId := spotify.ID(GetEnvString("SPOTIFY_DEFAULT_PLAYLIST_ID", ""))
 	playlistRequestIntervalMinutes := GetEnvInt("PLAYLIST_REQUEST_INTERVAL_MINUTES", 10)
 	slog.Debug("Setting up Spotify Playlist Dumper")
@@ -111,6 +117,9 @@ func SpotifyPlaylistDump(skipActivateDefaultPlaylist bool) {
 	}
 }
 
+// waitForStart blocks until it reads data from the startCh channel.
+// If a playlist is activated when data is received on the channel, running is set to true,
+// and the function returns, otherwise the function keeps waiting.
 func waitForStart() {
 	for !running {
 		slog.Debug("Waiting for things to actually start")
@@ -124,6 +133,10 @@ func waitForStart() {
 	slog.Debug("Things are starting NOW!")
 }
 
+// handlePlaylistLoop runs the loop for the periodic playlist processing.
+// Calls processPlaylist and waits either for the defined wait duration to run again,
+// or for data on the stopCh channel, in which case it does one last call to processPlaylist
+// and terminates.
 func handlePlaylistLoop(ctx context.Context, waitDuration time.Duration) {
 	for {
 		processPlaylist(ctx)
@@ -142,6 +155,9 @@ func handlePlaylistLoop(ctx context.Context, waitDuration time.Duration) {
 	}
 }
 
+// processPlaylist retrieves the list of songs played since the last request from the Spotify API
+// and checks for each of them if they already exist in the songsMap. If yes, the song is ignored,
+// otherwise it collects it to a second list and adds them to the currently active playlist.
 func processPlaylist(ctx context.Context) {
 	// my function naming game is going very well right now ...
 
@@ -173,16 +189,24 @@ func processPlaylist(ctx context.Context) {
 	}
 }
 
+// formatTrack returns a "Artist - Name" formatted string of the given track data.
 func formatTrack(track spotify.SimpleTrack) string {
 	return fmt.Sprintf("%s - %s", track.Artists[0].Name, track.Name)
 }
 
+// ActivatePlaylist sets the given playlistId as the new active playlist, and all recently played songs
+// are from now on added to that list. Receives all existing songs on the playlist via Spotify API,
+// and populates the internal songsMap with it.
+//
+// If the given playlistId doesn't exist or can't be retrieved for other reasons, the whole program
+// will be terminated (although this should be changed and simply show an error instead)
 func ActivatePlaylist(ctx context.Context, client *spotify.Client, playlistId spotify.ID) {
 	slog.Debug("Activating playlist", "id", playlistId)
 	plist, err := client.GetPlaylist(ctx, playlistId)
 	if err != nil {
 		slog.Error("Cannot get playlist", "id", plist)
 		// The whole point is to manage playlists, so not much to continue here now
+		// TODO terminating isn't really necessary anymore, now that playlists can be selected on the go
 		signalCh <- syscall.SIGTERM
 		return
 	}
@@ -215,6 +239,8 @@ func ActivatePlaylist(ctx context.Context, client *spotify.Client, playlistId sp
 	slog.Debug("Playlist activated", "id", playlist.ID, "name", playlist.Name)
 }
 
+// addToMap checks if the given track doesn't exist in the songsMap yet and adds it to it.
+// Returns true if the song was added, and false if the song already existed.
 func addToMap(track spotify.SimpleTrack) bool {
 	_, found := songsMap[track.ID]
 	if !found {
@@ -224,13 +250,15 @@ func addToMap(track spotify.SimpleTrack) bool {
 	return !found
 }
 
+// updatePlaylist adds the list of newSongs to the currently active playlist.
+// Songs are added in the order they were played.
 func updatePlaylist(ctx context.Context, client *spotify.Client, newSongs []spotify.ID) {
 	if len(newSongs) == 0 {
 		slog.Debug("Updating playlist skipped, no new songs")
 		return
 	}
 
-	// reverse list to add in the order they were played
+	// reverse list to add songs in the order they were played
 	slices.Reverse(newSongs)
 	slog.Debug("Updating playlist", "newSongsCount", len(newSongs), "songIds", newSongs)
 	snapshot, err := client.AddTracksToPlaylist(ctx, playlist.ID, newSongs...)
@@ -241,6 +269,7 @@ func updatePlaylist(ctx context.Context, client *spotify.Client, newSongs []spot
 	slog.Debug("Playlist updated", "snapshot ID", snapshot)
 }
 
+// GetPlaylists retrieves and returns the list of the active Spotify user's playlists.
 func GetPlaylists(ctx context.Context) ([]PlaylistInfo, error) {
 	if client == nil {
 		return nil, fmt.Errorf("spotify client not initialized")
@@ -256,6 +285,11 @@ func GetPlaylists(ctx context.Context) ([]PlaylistInfo, error) {
 	return items, nil
 }
 
+// ValidatePlaylist checks if a given playlist id is valid for the playlist processing.
+// If first tries to retrieve it from the Spotify API and ensures the current active
+// Spotify user is the owner of that playlist.
+//
+// Returns true if retrieving the list succeeds and the ownership matches, false otherwise.
 func ValidatePlaylist(ctx context.Context, id spotify.ID) bool {
 	plist, err := client.GetPlaylist(ctx, id)
 	if err != nil {
@@ -269,6 +303,8 @@ func ValidatePlaylist(ctx context.Context, id spotify.ID) bool {
 	return plist.Owner.ID == userId
 }
 
+// GetCurrentlyPlaying retrieves and returns the name of the artist and song that is currently
+// being played on Spotify. If playback is paused, a literal "nothing" string is returned instead.
 func GetCurrentlyPlaying(ctx context.Context) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("spotify client not initialized")

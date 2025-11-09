@@ -30,11 +30,11 @@ func main() {
 
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
-	HandlersSetup()
-	go HandlersRun()
+	ApiHandlersSetup()
+	go ApiHandlersRun()
 
 	SpotifyClientSetup(*spotifyAutostart)
-	go SpotifyPlaylistDump(*spotifyNoPlaylist)
+	go SpotifyPlaylistHandlerRun(*spotifyNoPlaylist)
 
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 	<-signalCh
