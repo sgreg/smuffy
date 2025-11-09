@@ -11,4 +11,34 @@ Obviously, after repeat-listening a certain song or band for the last hours, it 
 
 Copying manually some songs to a dedicated playlist is an option, sure, but I don't really want to make it a chore to enjoy music.
 
-To the rescue: This here.
+To the rescue: The _Spotify Mix Unfcker_ to automatically copy all recently played songs to dedicated playlists
+
+## What it does
+
+- on activation, retrieves the selected playlist's content via [`/playlists/{playlist_id}`](https://developer.spotify.com/documentation/web-api/reference/get-playlist) and also keep it in memory, so no need to retrieve it over and over again
+- periodically retrieves the list of last played songs via [`/me/player/recently-played`](https://developer.spotify.com/documentation/web-api/reference/get-recently-played)
+- compares the recently played songs' IDs against the IDs already contained in the playlist
+- creates the diff of songs, adds them to the in-memory list and calls [`/playlists/{playlist_id}/tracks`](https://developer.spotify.com/documentation/web-api/reference/add-tracks-to-playlist) to add them straight to the actual playlist
+- runs a web UI to manage which playlist to use and which of the last played songs to start with
+
+## Running it
+
+You'll need to set up your own Spotify app in their [developer portal](https://developer.spotify.com/), and create an `.env` file with the information needed, if you wanna give it a try.
+
+### Build it
+```shell
+go build
+```
+
+### Run int
+```shell
+./spotify-mix-unfcker
+```
+
+**NOTE: THERE IS NO USER AUTHENTICATION IN PLACE, SO YOU SHOULD NEVER RUN THIS PUBLICLY ACCESSIBLE IN ITS CURRENT STATE!**
+
+
+
+### Use it
+
+Go to your browser and visit http://localhost:58071
