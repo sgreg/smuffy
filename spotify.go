@@ -48,6 +48,9 @@ func createSpotifyAuth() *spotifyauth.Authenticator {
 			spotifyauth.ScopeUserReadPrivate,
 			spotifyauth.ScopeUserReadCurrentlyPlaying,
 			spotifyauth.ScopeUserReadRecentlyPlayed,
+			spotifyauth.ScopePlaylistReadPrivate,
+			spotifyauth.ScopePlaylistModifyPublic,
+			spotifyauth.ScopePlaylistModifyPrivate,
 		),
 	)
 }
