@@ -1,4 +1,4 @@
-module spotify-mix-unfcker
+module smuffy
 
 go 1.24.0
 

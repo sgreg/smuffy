@@ -1,4 +1,4 @@
-# Spotify Mix Unfcker
+# smuffy - the Spotify Mix Unfcker
 
 I'm a big fan of Spotify's generated daily and genre-specific mixes in general.
 They're great to just have a nice list of music going without thinking too much what to play next, and I've discovered plenty of great new-to-me songs through them.
@@ -11,7 +11,7 @@ Obviously, after repeat-listening a certain song or band for the last hours, it 
 
 Copying manually some songs to a dedicated playlist is an option, sure, but I don't really want to make it a chore to enjoy music.
 
-To the rescue: The _Spotify Mix Unfcker_ to automatically copy all recently played songs to dedicated playlists
+To the rescue: smuffy! It will automatically copy all recently played songs to dedicated playlists
 
 ## What it does
 
@@ -32,7 +32,7 @@ go build
 
 ### Run int
 ```shell
-./spotify-mix-unfcker
+./smuffy
 ```
 
 **NOTE: THERE IS NO USER AUTHENTICATION IN PLACE, SO YOU SHOULD NEVER RUN THIS PUBLICLY ACCESSIBLE IN ITS CURRENT STATE!**
