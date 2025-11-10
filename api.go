@@ -168,13 +168,20 @@ func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
 // handlePostPlaylistSelect http handler sets up the selected playlist as the new active to one to populate
 // with the recently played songs, assuming it's valid and the current user can modify.
 //
+// If the new playlist is the same as the already active playlist, the request is more or less ignored.
 // If playlist handling is already ongoing, it's stopped first.
 //
 // Renders the new state of active playlist on success.
 func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request) {
-	ctx := context.Background()
 	playlistId := spotify.ID(request.PathValue("id"))
 
+	if playlistId == playlist.ID {
+		slog.Info("Trying to activate already activated playlist, ignoring", "id", playlistId)
+		http.Error(writer, "Playlist already active", http.StatusNoContent)
+		return
+	}
+
+	ctx := context.Background()
 	if !ValidatePlaylist(ctx, playlistId) {
 		slog.Warn("Playlist validation failed", "id", playlistId)
 		http.Error(writer, "Failed to get playlist", http.StatusNotFound)
