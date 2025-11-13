@@ -1,0 +1,107 @@
+body {
+    font-family: sans-serif;
+    margin: 2rem;
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+}
+
+.box {
+    padding: 1rem;
+    border: 1px solid #ddd;
+    border-radius: 8px
+}
+
+#playlist {
+    margin-bottom: 1rem;
+}
+
+a {
+    color: #cc6600;
+    text-decoration: none;
+}
+a:hover {
+    color: #ff9900;
+}
+
+a path {
+    fill: #cc6600;
+}
+a:hover path {
+    fill: #ff9900;
+}
+
+path, #auth path {
+    fill: #f0f0f0;
+}
+
+#play-disabled path {
+    fill: #666;
+}
+.dropdown summary svg {
+    cursor: pointer;
+}
+.dropdown summary path {
+    fill: #00cc00;
+}
+.dropdown summary svg:hover path {
+    fill: #00ff00;
+    cursor: pointer;
+}
+#play-stop path {
+    fill: #cc0000;
+}
+#play-stop:hover path {
+    fill: #ff0000;
+}
+
+.dropdown summary {
+    list-style: none;
+    text-align: center;
+}
+
+.dropdown ul {
+    position: absolute;
+    margin: 0 0 0 -100px;
+    padding: 20px 0;
+    width: 200px;
+    left: 50%;
+    box-sizing: border-box;
+    z-index: 2;
+    background: #000000;
+    border-radius: 8px;
+    list-style: none;
+}
+
+.dropdown ul li {
+    padding: 0;
+    margin: 0;
+}
+
+.dropdown ul li a:link, .dropdown ul li a:visited {
+    display: inline-block;
+    padding: 10px 0.8rem;
+    width: 100%;
+    box-sizing: border-box;
+    color: #cc6600;
+    text-decoration: none;
+}
+
+.dropdown ul li a:hover {
+    background-color: #272727;
+    color: #ff9900;
+}
+
+.dropdown > summary::before {
+    display: none;
+}
+
+.dropdown[open] > summary::before {
+    content: ' ';
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1;
+}

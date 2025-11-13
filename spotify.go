@@ -319,6 +319,20 @@ func GetCurrentlyPlaying(ctx context.Context) (string, error) {
 	return formatTrack(playing.Item.SimpleTrack), nil
 }
 
+// GetCurrentlyPlayedTrack retrieves and returns the full information of the current track that
+// is played on Spotify. If playback is paused, it will still retrieve that last played track.
+func GetCurrentlyPlayedTrack(ctx context.Context) (*spotify.CurrentlyPlaying, error) {
+	if client == nil {
+		return nil, fmt.Errorf("spotify client not initialized")
+	}
+	playing, err := client.PlayerCurrentlyPlaying(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slog.Debug("Currently playing retrieved", "data", playing)
+	return playing, nil
+}
+
 // GetLastSongs requests the last count played songs from the Spotify API.
 //
 // If the timestamp is set to 0, the current date and time are implied.

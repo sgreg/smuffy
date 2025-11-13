@@ -1,0 +1,19 @@
+<h3>Playing Now: {{.Now}}</h3>
+
+{{ if gt .Count 0 }}
+<h3>Play History</h3>
+<ol>
+    {{- if .Items }}
+    {{- range .Items }}
+    <li>{{ . }}</li>
+    {{- end }}
+    {{- else }}
+    <li><em>No songs yet</em></li>
+    {{- end }}
+</ol>
+{{if gt .NextCount 0}}
+<a href="#" hx-get="/playing/{{.NextCount}}" hx-target="#content" hx-swap="innerHTML">Load more</a>
+{{end}}
+{{else}}
+<a href="#" hx-get="/playing/{{.NextCount}}" hx-target="#content" hx-swap="innerHTML">Show history</a>
+{{end}}

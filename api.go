@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/zmb3/spotify/v2"
 )
@@ -28,6 +29,8 @@ func ApiHandlersSetup() {
 	http.HandleFunc("POST /playlist-select/{id}", handlePostPlaylistSelect)
 	http.HandleFunc("GET /now", handleGetNow)
 	http.HandleFunc("GET /last", handleGetLast)
+	http.HandleFunc("GET /playing", handleGetPlaying)
+	http.HandleFunc("GET /playing/{count}", handleGetPlaying)
 	http.HandleFunc("GET /last/{count}", handleGetLast)
 	http.HandleFunc("GET /last-before/{timestamp}", handleGetLastBefore)
 	http.HandleFunc("GET /last-before/{timestamp}/{count}", handleGetLastBefore)
@@ -36,6 +39,7 @@ func ApiHandlersSetup() {
 	http.HandleFunc("GET /startlist", handleGetStartList)
 	http.HandleFunc("GET /runstate", handleGetRunState)
 	http.HandleFunc("POST /start", handlePostStart)
+	http.HandleFunc("POST /start/now", handlePostStartNow)
 	http.HandleFunc("POST /start/{timestamp}", handlePostStart)
 	http.HandleFunc("POST /stop", handlePostStop)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +135,13 @@ func renderPlaylists(writer http.ResponseWriter, selectable bool) {
 		http.Error(writer, "Failed to get playlists", http.StatusInternalServerError)
 		return
 	}
-	data := struct{ Playlists []PlaylistInfo }{Playlists: items}
+	data := struct {
+		Activated PlaylistInfo
+		Playlists []PlaylistInfo
+	}{
+		Activated: playlist,
+		Playlists: items,
+	}
 
 	var fileName string
 	if selectable {
@@ -152,11 +162,8 @@ func handleGetPlaylists(writer http.ResponseWriter, _ *http.Request) {
 
 // handleGetPlaylistActive http handler renders the status and name of the active playlist if there is one.
 func handleGetPlaylistActive(writer http.ResponseWriter, _ *http.Request) {
-	playlistName := playlist.Name
-	data := struct{ Playlist string }{Playlist: playlistName}
-	if err := renderTemplate(writer, "templates/snippets/playlist-active.html", data); err != nil {
-		return
-	}
+	// TODO remove this I guess, it's identical to getrunstate part (also rename startstop.html maybe to runstate or something)
+	renderSpotifyRunState(writer, running)
 }
 
 // handleGetPlaylists http handler retrieves and renders the list of playlists for the active Spotify user,
@@ -195,8 +202,61 @@ func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request)
 
 	ActivatePlaylist(ctx, client, playlistId) // FIXME why is client always passed around, it's global anyway?
 
-	data := struct{ Playlist string }{Playlist: playlist.Name}
-	if err := renderTemplate(writer, "templates/snippets/playlist-active.html", data); err != nil {
+	renderSpotifyRunState(writer, running)
+}
+
+// handleGetPlaying http handler renders the currently playing song and play history.
+// An optional 'count' parameter can be added to the url to limit the number of maximum songs to show,
+// defaulting to 0 if omitted.
+//
+// Rendering itself will add a "load more" option if the 'count' parameter is below Spotify's maximum
+// number of last played songs (50).
+func handleGetPlaying(writer http.ResponseWriter, request *http.Request) {
+	ctx := context.Background()
+	now, err := GetCurrentlyPlaying(ctx)
+	if err != nil {
+		slog.Warn("Failed to get currently playing", "err", err)
+		http.Error(writer, "Failed to get currently playing", http.StatusInternalServerError)
+		return
+	}
+
+	count := int(parseParamUint(request, "count", 10))
+	songs, err := GetLastSongs(context.Background(), count, 0)
+	if err != nil {
+		slog.Warn("Failed to get last played songs", "err", err)
+		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
+		return
+	}
+
+	var last []string
+	for index, song := range songs {
+		last = append(last, formatTrack(song.Track))
+		slog.Info(fmt.Sprintf("    %02d: [%s](%d) %s",
+			index+1,
+			song.PlayedAt.Format("2006-01-02 15:04:05 -0700 MST"),
+			song.PlayedAt.UnixMilli(),
+			formatTrack(song.Track),
+		))
+	}
+
+	nextCount := count + 10
+	if nextCount > 50 {
+		nextCount = 0
+	}
+
+	data := struct {
+		Now       string
+		Items     []string
+		Count     int
+		NextCount int
+	}{
+		Now:       now,
+		Items:     last,
+		Count:     count,
+		NextCount: nextCount,
+	}
+
+	if err := renderTemplate(writer, "templates/snippets/playing.html", data); err != nil {
 		return
 	}
 }
@@ -350,6 +410,42 @@ func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 	renderSpotifyRunState(writer, true)
 }
 
+// handlePostStartNow http handler tries to start the playlist processing by writing to the startCh channel.
+// If playback is currently ongoing, the start time of that song is taken as the processing starting point,
+// otherwise the current time is taken, and processing will essentially start with the next played song.
+//
+// If processing is already running, http.StatusBadRequest is returned.
+// If no active playlist is selected, http.StatusBadRequest is returned as well, as processing requires one.
+func handlePostStartNow(writer http.ResponseWriter, request *http.Request) {
+	if running {
+		http.Error(writer, "Already started", http.StatusBadRequest)
+		return
+	}
+	if playlist.ID == "" {
+		// TODO show some error on the UI somewhere in that case
+		slog.Warn("Start requested but no playlist selected")
+		http.Error(writer, "No playlist selected", http.StatusBadRequest)
+		return
+	}
+	track, err := GetCurrentlyPlayedTrack(context.Background())
+	if err != nil {
+		slog.Warn("Cannot get currently played track", "err", err)
+		http.Error(writer, "Failed to get currently played track", http.StatusInternalServerError)
+		return
+	}
+
+	if track.Playing {
+		slog.Debug("Track is playing, using its timestamp", "timestamp", track.Timestamp)
+		lastTime = track.Timestamp
+	} else {
+		slog.Debug("Track not playing, using current time")
+		lastTime = time.Now().UnixMilli()
+	}
+
+	startCh <- struct{}{}
+	renderSpotifyRunState(writer, true)
+}
+
 // handlePostStop http handler tries to stop the playlist processing by writing to the stopCh channel.
 //
 // If processing is not running, http.StatusBadRequest is returned.
@@ -364,7 +460,13 @@ func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
 
 // renderSpotifyRunState renders the current playlist processing running state.
 func renderSpotifyRunState(writer http.ResponseWriter, state bool) {
-	data := struct{ Running bool }{Running: state}
+	data := struct {
+		Running  bool
+		Playlist PlaylistInfo
+	}{
+		Running:  state,
+		Playlist: playlist,
+	}
 	if err := renderTemplate(writer, "templates/snippets/startstop.html", data); err != nil {
 		return
 	}

@@ -1,7 +1,70 @@
-Spotify handling is {{if .Running}}running{{else}}stopped{{end}},
-{{if not .Running}}
-<a href="#" hx-post="/start" hx-target="#runstate" hx-swap="innerHTML">START</a>
-<a href="#" hx-get="/startlist" hx-target="#content" hx-swap="innerHTML">Set starting point</a>
-{{else}}
-<a href="#" hx-post="/stop" hx-target="#runstate" hx-swap="innerHTML">STOP</a>
-{{end}}
+<!--<div style="display: flex; flex-direction: column; justify-content: center; align-items: center;">-->
+    <div>
+        {{if not .Running}}
+        {{if eq .Playlist.ID "" }}
+        <div id="play-disabled" style="text-align: center" title="Please select a playlist first">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="50px">
+                <!--!Font Awesome Free v5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+                <path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm115.7 272l-176 101c-15.8 8.8-35.7-2.5-35.7-21V152c0-18.4 19.8-29.8 35.7-21l176 107c16.4 9.2 16.4 32.9 0 42z"/>
+            </svg>
+        </div>
+        {{else}}
+        <details class="dropdown">
+            <summary>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="50px">
+                    <!--!Font Awesome Free v5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+                    <path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm115.7 272l-176 101c-15.8 8.8-35.7-2.5-35.7-21V152c0-18.4 19.8-29.8 35.7-21l176 107c16.4 9.2 16.4 32.9 0 42z"/>
+                </svg>
+            </summary>
+            <ul>
+                <li><a href="#" hx-post="/start/now" hx-target="#runstate" hx-swap="innerHTML">Start from right now</a></li>
+                <li><a href="#" hx-post="/start" hx-target="#runstate" hx-swap="innerHTML">Start with full history</a></li>
+                <li><a href="#" hx-get="/startlist" hx-target="#content" hx-swap="innerHTML" hx-on:click="this.parentElement.parentElement.parentElement.removeAttribute('open') /* yikes */">Select starting song</a></li>
+            </ul>
+        </details>
+
+<!--        <div style="text-align: center">-->
+<!--            <a href="#" hx-post="/start" hx-target="#runstate" hx-swap="innerHTML" id="play-ready">-->
+<!--                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="50px">-->
+<!--                    &lt;!&ndash;!Font Awesome Free v5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.&ndash;&gt;-->
+<!--                    <path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm115.7 272l-176 101c-15.8 8.8-35.7-2.5-35.7-21V152c0-18.4 19.8-29.8 35.7-21l176 107c16.4 9.2 16.4 32.9 0 42z"/>-->
+<!--                </svg>-->
+<!--            </a>-->
+<!--        </div>-->
+
+<!--        <div style="text-align: center">-->
+<!--            <a href="#" hx-get="/startlist" hx-target="#content" hx-swap="innerHTML">Set starting point</a>-->
+<!--        </div>-->
+        {{end}}
+        {{else}}
+        <div style="text-align: center">
+            <a href="#" hx-post="/stop" hx-target="#runstate" hx-swap="innerHTML" id="play-stop">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="50px">
+                    <!--!Font Awesome Pro v5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2025 Fonticons, Inc.-->
+                    <path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm96 328c0 8.8-7.2 16-16 16H176c-8.8 0-16-7.2-16-16V176c0-8.8 7.2-16 16-16h160c8.8 0 16 7.2 16 16v160z"/>
+                </svg>
+            </a>
+        </div>
+        {{end}}
+    </div>
+
+    <div style="display: flex; justify-content: center; align-items: center; margin: 40px 0">
+        <div style="display: flex; justify-content: center; align-items: center; border: 1px solid #f0f0f0; border-radius: 8px; padding: 8px; background-color: #000">
+            <div id="playlist" style="font-size: 1.2em; margin: 0 20px; text-align: center;">
+                {{if eq .Playlist.Name ""}}
+                <span style="color: #cc0000">No playlist selected!</span>
+                {{else}}
+                {{.Playlist.Name}}
+            {{end}}
+            </div>
+            <div>
+                <a href="#" hx-get="/playlist-select" hx-target="#content" hx-swap="innerHTML">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="30px">
+                        <!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+                        <path d="M535.6 85.7C513.7 63.8 478.3 63.8 456.4 85.7L432 110.1L529.9 208L554.3 183.6C576.2 161.7 576.2 126.3 554.3 104.4L535.6 85.7zM236.4 305.7C230.3 311.8 225.6 319.3 222.9 327.6L193.3 416.4C190.4 425 192.7 434.5 199.1 441C205.5 447.5 215 449.7 223.7 446.8L312.5 417.2C320.7 414.5 328.2 409.8 334.4 403.7L496 241.9L398.1 144L236.4 305.7zM160 128C107 128 64 171 64 224L64 480C64 533 107 576 160 576L416 576C469 576 512 533 512 480L512 384C512 366.3 497.7 352 480 352C462.3 352 448 366.3 448 384L448 480C448 497.7 433.7 512 416 512L160 512C142.3 512 128 497.7 128 480L128 224C128 206.3 142.3 192 160 192L256 192C273.7 192 288 177.7 288 160C288 142.3 273.7 128 256 128L160 128z"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </div>
+<!--</div>-->

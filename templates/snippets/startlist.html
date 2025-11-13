@@ -1,7 +1,4 @@
 <h3>Pick the first song where handling should start</h3>
-<ul>
-    <li><a href="">Next song</a> (TODO)</li>
-</ul>
 <ol>
     {{- if .Items }}
     {{- range .Items }}
@@ -11,3 +8,4 @@
     <li><em>No songs yet</em></li>
     {{- end }}
 </ol>
+<a href="#" hx-get="/playing/0" hx-target="#content" hx-swap="innerHTML">Cancel</a>
