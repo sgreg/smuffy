@@ -61,8 +61,7 @@ func createSpotifyAuth() *spotifyauth.Authenticator {
 //
 // If a token is cached, it tries to load and use it, otherwise it waits for data to read on the tokenCh
 // channel sent by the handleSpotifyCallback http handler on successful API authentication.
-func SpotifyClientSetup(autostartEnabled bool) {
-	running = autostartEnabled
+func SpotifyClientSetup() {
 	auth = createSpotifyAuth()
 	slog.Debug("Trying to load cached token")
 	token, err := LoadToken()
@@ -94,22 +93,12 @@ func SpotifyClientSetup(autostartEnabled bool) {
 }
 
 // SpotifyPlaylistHandlerRun starts and loops the Spotify playlist processing.
-func SpotifyPlaylistHandlerRun(skipActivateDefaultPlaylist bool) {
-	playlistId := spotify.ID(GetEnvString("SPOTIFY_DEFAULT_PLAYLIST_ID", ""))
+func SpotifyPlaylistHandlerRun() {
 	playlistRequestIntervalMinutes := GetEnvInt("PLAYLIST_REQUEST_INTERVAL_MINUTES", 10)
 	slog.Debug("Setting up Spotify Playlist Dumper")
 	waitDuration := time.Duration(playlistRequestIntervalMinutes) * time.Minute
 
 	ctx := context.Background()
-
-	if skipActivateDefaultPlaylist {
-		slog.Info("Skipping default playlist activation, make sure to select one via web UI")
-	} else if playlistId == "" {
-		slog.Warn("No default playlist defined, make sure to select one via web UI")
-	} else {
-		slog.Debug("Default playlist selected", "id", playlistId)
-		ActivatePlaylist(ctx, client, playlistId)
-	}
 
 	for {
 		waitForStart()
