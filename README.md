@@ -37,8 +37,18 @@ go build
 
 **NOTE: THERE IS NO USER AUTHENTICATION IN PLACE, SO YOU SHOULD NEVER RUN THIS PUBLICLY ACCESSIBLE IN ITS CURRENT STATE!**
 
-
-
 ### Use it
 
 Go to your browser and visit http://localhost:58071
+
+### Config it
+
+All configuration is currently done via `.env` file which is loaded on startup.
+
+Following entries are supported and understood. **Bold** entries are mandatory, and the tool won't work without them.
+
+- **`SPOTIFY_ID=<string>`** to define your own Spotify app's ID
+- **`SPOTIFY_SECRET=<string>`** same for the app's secret token
+- **`SPOTIFY_REDIRECT_URL=<string>`** one of the app's defined callback urls, defaults to http://localhost:58071/callback
+- `PLAYLIST_REQUEST_INTERVAL_MINUTES=<int>` time interval to update the playlist with the last played songs, defaults to 10 minutes
+- `CACHE_AUTH_TOKEN=<int>` set to `1` if Spotify auth token should be cached in a `.cache` file to reuse it next time the tool is started, comment it out to request auth on every start

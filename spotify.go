@@ -41,7 +41,7 @@ const checkTimeBufferMs = 60 * 1000 // 1 Minute
 
 // createSpotifyAuth returns a spotifyauth.Authenticator object set up with all required scopes.
 func createSpotifyAuth() *spotifyauth.Authenticator {
-	redirectUri := GetEnvString("SPOTIFY_REDIRECT_URL", "http://localhost:12345/callback")
+	redirectUri := GetEnvString("SPOTIFY_REDIRECT_URL", "http://localhost:58071/callback")
 
 	return spotifyauth.New(
 		spotifyauth.WithRedirectURL(redirectUri),
