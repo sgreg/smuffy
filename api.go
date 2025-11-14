@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"html/template"
 	"log"
@@ -13,13 +14,15 @@ import (
 	"github.com/zmb3/spotify/v2"
 )
 
+//go:embed static templates
+var webUiContent embed.FS
+
 const httpHandlersHost = ""
 const httpHandlersPort = 58071
 
 // ApiHandlersSetup initializes all the http handlers
 func ApiHandlersSetup() {
-	fs := http.FileServer(http.Dir("static"))
-	http.Handle("/static/", http.StripPrefix("/static/", fs))
+	http.Handle("/static/", http.FileServer(http.FS(webUiContent)))
 
 	http.HandleFunc("GET /callback", handleSpotifyCallback)
 	http.HandleFunc("GET /{$}", handleIndex)
@@ -50,7 +53,7 @@ func ApiHandlersRun() {
 // If loading the template or rendering itself fails, http.StatusInternalServerError is returned.
 func renderTemplate(w http.ResponseWriter, templateFile string, data any) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl, err := template.ParseFiles(templateFile)
+	tmpl, err := template.ParseFS(webUiContent, templateFile)
 	if err != nil {
 		slog.Warn("Failed to parse template", "path", templateFile, "err", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
