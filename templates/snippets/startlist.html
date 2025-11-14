@@ -2,7 +2,9 @@
 <ol>
     {{- if .Items }}
     {{- range .Items }}
-    <li><a href="#" hx-post="/start/{{ .Timestamp }}" hx-target="#runstate" hx-swap="innerHTML">{{ .Name }}</a></li>
+    <li><a href="#" hx-post="/start/{{ .Timestamp }}" hx-target="#runstate" hx-swap="innerHTML"
+           hx-on::after-request="htmx.ajax('GET', '/playing/0', '#content')"
+    >{{ .Name }}</a></li>
     {{- end }}
     {{- else }}
     <li><em>No songs yet</em></li>
