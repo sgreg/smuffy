@@ -11,19 +11,47 @@ Obviously, after repeat-listening a certain song or band for the last hours, it 
 
 Copying manually some songs to a dedicated playlist is an option, sure, but I don't really want to make it a chore to enjoy music.
 
-To the rescue: smuffy! It will automatically copy all recently played songs to dedicated playlists
+To the rescue: smuffy!
 
 ## What it does
 
-- on activation, retrieves the selected playlist's content via [`/playlists/{playlist_id}`](https://developer.spotify.com/documentation/web-api/reference/get-playlist) and also keep it in memory, so no need to retrieve it over and over again
-- periodically retrieves the list of last played songs via [`/me/player/recently-played`](https://developer.spotify.com/documentation/web-api/reference/get-recently-played)
-- compares the recently played songs' IDs against the IDs already contained in the playlist
-- creates the diff of songs, adds them to the in-memory list and calls [`/playlists/{playlist_id}/tracks`](https://developer.spotify.com/documentation/web-api/reference/add-tracks-to-playlist) to add them straight to the actual playlist
-- runs a web UI to manage which playlist to use and which of the last played songs to start with
+smuffy waits for the user to select both a target playlist (any playlist the user owns)
+and a starting point (right now, a certain song in the play history, or simply the entire play history).
+Once done, smuffy adds all past songs from the starting point and all future songs from here on forward
+to the target playlist, preserving any generated mix in a dedicated playlist.
+
+But it doesn't even need to be for that, got some upcoming event you want to have a memory of all the music
+played there? Tadaa - smuffy!
+
+## How it does that
+
+smuffy itself is just running in the background, and all interaction happens through a web UI it provides.
+There, you can select one of your existing playlists and start the whole process by pressing play.
+
+On start, smuffy retrieves the selected playlist's content via [`/playlists/{playlist_id}`](https://developer.spotify.com/documentation/web-api/reference/get-playlist)
+and keeps a copy of the relevant information around. It then periodically
+
+- retrieves the list of last played songs via [`/me/player/recently-played`](https://developer.spotify.com/documentation/web-api/reference/get-recently-played)
+- compares the recently played songs against the ones already contained in the playlist
+- collects the new songs in a list
+- calls [`/playlists/{playlist_id}/tracks`](https://developer.spotify.com/documentation/web-api/reference/add-tracks-to-playlist) to add them straight to the actual playlist
+- waits for a user-defined number of minutes to start over with that.
+
+This will run for as long as you let it, i.e., until pressing stop on the web UI, which puts smuffy back in idle state,
+waiting for a new start signal - maybe you changed your mood and need a new playlist to record to.
+
+## Known Limitations
+
+- No authentication outside the Spotify API, once you're authenticated with Spotify, anyone with access to smuffy can use it
+- Spotify limits the play history to 50 songs, so you can't copy your entire life
+- Spotify adds only fully played songs to the list of recently played songs, so skipped songs will be ignored (which is kinda good though)
+- By design, duplicate songs aren't added to the playlist, so recording the full, raw play history as-is isn't possible (this may be an option in the future)
+- There's no playlist management implemented (nor planned at this point), so creating playlists, deleting songs or other rearrangements need to be done in Spotify
 
 ## Running it
 
 You'll need to set up your own Spotify app in their [developer portal](https://developer.spotify.com/), and create an `.env` file with the information needed, if you wanna give it a try.
+Note that Spotify enforces HTTPS for callback URLs other than localhost.
 
 ### Build it
 ```shell
