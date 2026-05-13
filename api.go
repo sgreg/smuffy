@@ -20,38 +20,50 @@ var webUiContent embed.FS
 const httpHandlersHost = ""
 const httpHandlersPort = 58071
 
-// ApiHandlersSetup initializes all the http handlers
-func ApiHandlersSetup() {
-	http.Handle("/static/", http.FileServer(http.FS(webUiContent)))
+type ApiService struct {
+	spotify *SpotifyService
+	mux     *http.ServeMux
+}
 
-	http.HandleFunc("GET /callback", handleSpotifyCallback)
-	http.HandleFunc("GET /{$}", handleIndex)
-	http.HandleFunc("GET /playlist-select", handleGetPlaylistSelect)
-	http.HandleFunc("POST /playlist-select/{id}", handlePostPlaylistSelect)
-	http.HandleFunc("GET /playing", handleGetPlaying)
-	http.HandleFunc("GET /playing/{count}", handleGetPlaying)
-	http.HandleFunc("GET /startlist", handleGetStartList)
-	http.HandleFunc("GET /runstate", handleGetRunState)
-	http.HandleFunc("POST /start", handlePostStart)
-	http.HandleFunc("POST /start/now", handlePostStartNow)
-	http.HandleFunc("POST /start/{timestamp}", handlePostStart)
-	http.HandleFunc("POST /stop", handlePostStop)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func NewApiService(spotifyService *SpotifyService) *ApiService {
+	return &ApiService{
+		spotify: spotifyService,
+		mux:     http.NewServeMux(),
+	}
+}
+
+// Setup initializes all the http handlers.
+func (a *ApiService) Setup() {
+	a.mux.Handle("/static/", http.FileServer(http.FS(webUiContent)))
+
+	a.mux.HandleFunc("GET /callback", a.handleSpotifyCallback)
+	a.mux.HandleFunc("GET /{$}", a.handleIndex)
+	a.mux.HandleFunc("GET /playlist-select", a.handleGetPlaylistSelect)
+	a.mux.HandleFunc("POST /playlist-select/{id}", a.handlePostPlaylistSelect)
+	a.mux.HandleFunc("GET /playing", a.handleGetPlaying)
+	a.mux.HandleFunc("GET /playing/{count}", a.handleGetPlaying)
+	a.mux.HandleFunc("GET /startlist", a.handleGetStartList)
+	a.mux.HandleFunc("GET /runstate", a.handleGetRunState)
+	a.mux.HandleFunc("POST /start", a.handlePostStart)
+	a.mux.HandleFunc("POST /start/now", a.handlePostStartNow)
+	a.mux.HandleFunc("POST /start/{timestamp}", a.handlePostStart)
+	a.mux.HandleFunc("POST /stop", a.handlePostStop)
+	a.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Request not found", "method", r.Method, "url", r.URL.String())
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("Not Found"))
 	})
 }
 
-// ApiHandlersRun starts and loops the http server.
-func ApiHandlersRun() {
+// Run starts and loops the http server.
+func (a *ApiService) Run() {
 	listenAddress := fmt.Sprintf("%s:%d", httpHandlersHost, httpHandlersPort)
-	log.Fatal(http.ListenAndServe(listenAddress, nil))
+	log.Fatal(http.ListenAndServe(listenAddress, a.mux))
 }
 
 // renderTemplate takes the given templateFile and data and renders it to the given ResponseWriter.
 // If loading the template or rendering itself fails, http.StatusInternalServerError is returned.
-func renderTemplate(w http.ResponseWriter, templateFile string, data any) error {
+func (a *ApiService) renderTemplate(w http.ResponseWriter, templateFile string, data any) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl, err := template.ParseFS(webUiContent, templateFile)
 	if err != nil {
@@ -77,15 +89,15 @@ func renderTemplate(w http.ResponseWriter, templateFile string, data any) error 
 // process via Spotify authentication is skipped on the next startup.
 //
 // Renders HTML template to show successful authentication and redirects back home.
-func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
-	token, err := auth.Token(request.Context(), state, request)
+func (a *ApiService) handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
+	token, err := a.spotify.auth.Token(request.Context(), a.spotify.state, request)
 	if err != nil {
 		http.Error(writer, "Couldn't get token", http.StatusForbidden)
 		log.Fatal(err)
 	}
-	if st := request.FormValue("state"); st != state {
+	if st := request.FormValue("state"); st != a.spotify.state {
 		http.NotFound(writer, request)
-		log.Fatalf("State mismatch: %s != %s\n", st, state)
+		log.Fatalf("State mismatch: %s != %s\n", st, a.spotify.state)
 	}
 
 	if GetEnvInt("CACHE_AUTH_TOKEN", 0) == 1 {
@@ -95,33 +107,33 @@ func handleSpotifyCallback(writer http.ResponseWriter, request *http.Request) {
 		}
 	}
 
-	tokenCh <- token
+	a.spotify.tokenCh <- token
 	writer.Header().Set("Refresh", "3; url=/")
-	if err := renderTemplate(writer, "templates/authdone.html", nil); err != nil {
+	if err := a.renderTemplate(writer, "templates/authdone.html", nil); err != nil {
 		http.Error(writer, "Something went wrong", http.StatusInternalServerError)
 		return
 	}
 }
 
-// handleIndex http handler renders the home page on index.html
-func handleIndex(writer http.ResponseWriter, _ *http.Request) {
+// handleIndex http handler renders the home page on index.html.
+func (a *ApiService) handleIndex(writer http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		Username string
 		AuthUrl  string
 	}{
-		Username: username,
-		AuthUrl:  authUrl,
+		Username: a.spotify.username,
+		AuthUrl:  a.spotify.authURL,
 	}
-	if err := renderTemplate(writer, "templates/index.html", data); err != nil {
+	if err := a.renderTemplate(writer, "templates/index.html", data); err != nil {
 		return
 	}
 }
 
-// handleGetPlaylists http handler retrieves and renders the list of playlists for the active Spotify user,
+// handleGetPlaylistSelect http handler retrieves and renders the list of playlists for the active Spotify user,
 // intended to select a new playlist to populate from it.
-func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
+func (a *ApiService) handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
-	items, err := GetPlaylists(ctx)
+	items, err := a.spotify.GetPlaylists(ctx)
 	if err != nil {
 		slog.Warn("Failed to get playlists", "err", err)
 		http.Error(writer, "Failed to get playlists", http.StatusInternalServerError)
@@ -131,11 +143,11 @@ func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
 		Activated PlaylistInfo
 		Playlists []PlaylistInfo
 	}{
-		Activated: playlist,
+		Activated: a.spotify.playlist,
 		Playlists: items,
 	}
 
-	if err := renderTemplate(writer, "templates/snippets/playlists.html", data); err != nil {
+	if err := a.renderTemplate(writer, "templates/snippets/playlists.html", data); err != nil {
 		return
 	}
 }
@@ -147,30 +159,30 @@ func handleGetPlaylistSelect(writer http.ResponseWriter, _ *http.Request) {
 // If playlist handling is already ongoing, it's stopped first.
 //
 // Renders the new state of active playlist on success.
-func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request) {
+func (a *ApiService) handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request) {
 	playlistId := spotify.ID(request.PathValue("id"))
 
-	if playlistId == playlist.ID {
+	if playlistId == a.spotify.playlist.ID {
 		slog.Info("Trying to activate already activated playlist, ignoring", "id", playlistId)
 		http.Error(writer, "Playlist already active", http.StatusNoContent)
 		return
 	}
 
 	ctx := context.Background()
-	if !ValidatePlaylist(ctx, playlistId) {
+	if !a.spotify.ValidatePlaylist(ctx, playlistId) {
 		slog.Warn("Playlist validation failed", "id", playlistId)
 		http.Error(writer, "Failed to get playlist", http.StatusNotFound)
 		return
 	}
 
-	if running {
-		slog.Info("Shutting down current playlist handling", "id", playlist.ID, "name", playlist.Name)
-		stopCh <- struct{}{}
+	if a.spotify.running {
+		slog.Info("Shutting down current playlist handling", "id", a.spotify.playlist.ID, "name", a.spotify.playlist.Name)
+		a.spotify.stopCh <- struct{}{}
 	}
 
-	ActivatePlaylist(ctx, client, playlistId) // FIXME why is client always passed around, it's global anyway?
+	a.spotify.ActivatePlaylist(ctx, playlistId)
 
-	renderSpotifyRunState(writer, running)
+	a.renderSpotifyRunState(writer, a.spotify.running)
 }
 
 // handleGetPlaying http handler renders the currently playing song and play history.
@@ -179,17 +191,17 @@ func handlePostPlaylistSelect(writer http.ResponseWriter, request *http.Request)
 //
 // Rendering itself will add a "load more" option if the 'count' parameter is below Spotify's maximum
 // number of last played songs (50).
-func handleGetPlaying(writer http.ResponseWriter, request *http.Request) {
+func (a *ApiService) handleGetPlaying(writer http.ResponseWriter, request *http.Request) {
 	ctx := context.Background()
-	now, err := GetCurrentlyPlaying(ctx)
+	now, err := a.spotify.GetCurrentlyPlaying(ctx)
 	if err != nil {
 		slog.Warn("Failed to get currently playing", "err", err)
 		http.Error(writer, "Failed to get currently playing", http.StatusInternalServerError)
 		return
 	}
 
-	count := int(parseParamUint(request, "count", 10))
-	songs, err := GetLastSongs(context.Background(), count, 0)
+	count := int(a.parseParamUint(request, "count", 10))
+	songs, err := a.spotify.GetLastSongs(context.Background(), count, 0)
 	if err != nil {
 		slog.Warn("Failed to get last played songs", "err", err)
 		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
@@ -224,7 +236,7 @@ func handleGetPlaying(writer http.ResponseWriter, request *http.Request) {
 		NextCount: nextCount,
 	}
 
-	if err := renderTemplate(writer, "templates/snippets/playing.html", data); err != nil {
+	if err := a.renderTemplate(writer, "templates/snippets/playing.html", data); err != nil {
 		return
 	}
 }
@@ -235,7 +247,7 @@ func handleGetPlaying(writer http.ResponseWriter, request *http.Request) {
 //
 // Note that despite parsing an unsinged integer, a signed integer value is returned here, since any place further
 // down the road wants a signed integer anyway, and neither of the path values should be negative.
-func parseParamUint(request *http.Request, paramName string, defaultValue int64) int64 {
+func (a *ApiService) parseParamUint(request *http.Request, paramName string, defaultValue int64) int64 {
 	var value = defaultValue
 	param := request.PathValue(paramName)
 	slog.Debug("Parsing path param", "name", paramName, "value", param)
@@ -252,8 +264,8 @@ func parseParamUint(request *http.Request, paramName string, defaultValue int64)
 
 // handleGetStartList http handler retrieves and renders the list of all recently played songs,
 // intended to select a starting point for populating songs into the activated playlist.
-func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
-	songs, err := GetLastSongs(context.Background(), 50, 0)
+func (a *ApiService) handleGetStartList(writer http.ResponseWriter, _ *http.Request) {
+	songs, err := a.spotify.GetLastSongs(context.Background(), 50, 0)
 	if err != nil {
 		slog.Warn("Failed to get last played songs", "err", err)
 		http.Error(writer, "Failed to get last played songs", http.StatusInternalServerError)
@@ -273,14 +285,14 @@ func handleGetStartList(writer http.ResponseWriter, request *http.Request) {
 		})
 	}
 	data := struct{ Items []lastSongData }{Items: last}
-	if err := renderTemplate(writer, "templates/snippets/startlist.html", data); err != nil {
+	if err := a.renderTemplate(writer, "templates/snippets/startlist.html", data); err != nil {
 		return
 	}
 }
 
 // handleGetRunState http handler renders the current playlist processing run state.
-func handleGetRunState(writer http.ResponseWriter, _ *http.Request) {
-	renderSpotifyRunState(writer, running)
+func (a *ApiService) handleGetRunState(writer http.ResponseWriter, _ *http.Request) {
+	a.renderSpotifyRunState(writer, a.spotify.running)
 }
 
 // handlePostStart http handler tries to start the playlist processing by writing to the startCh channel.
@@ -290,23 +302,23 @@ func handleGetRunState(writer http.ResponseWriter, _ *http.Request) {
 //
 // If a timestamp parameter is given in the request url path, only songs after that time will be added to the
 // playlist, otherwise all the last played songs will be used.
-func handlePostStart(writer http.ResponseWriter, request *http.Request) {
-	if running {
+func (a *ApiService) handlePostStart(writer http.ResponseWriter, request *http.Request) {
+	if a.spotify.running {
 		http.Error(writer, "Already started", http.StatusBadRequest)
 		return
 	}
-	if playlist.ID == "" {
+	if a.spotify.playlist.ID == "" {
 		// TODO show some error on the UI somewhere in that case
 		slog.Warn("Start requested but no playlist selected")
 		http.Error(writer, "No playlist selected", http.StatusBadRequest)
 		return
 	}
-	timestamp := parseParamUint(request, "timestamp", 0)
+	timestamp := a.parseParamUint(request, "timestamp", 0)
 	if timestamp > 0 {
-		lastTime = timestamp
+		a.spotify.lastTime = timestamp
 	}
-	startCh <- struct{}{}
-	renderSpotifyRunState(writer, true)
+	a.spotify.startCh <- struct{}{}
+	a.renderSpotifyRunState(writer, true)
 }
 
 // handlePostStartNow http handler tries to start the playlist processing by writing to the startCh channel.
@@ -315,18 +327,18 @@ func handlePostStart(writer http.ResponseWriter, request *http.Request) {
 //
 // If processing is already running, http.StatusBadRequest is returned.
 // If no active playlist is selected, http.StatusBadRequest is returned as well, as processing requires one.
-func handlePostStartNow(writer http.ResponseWriter, request *http.Request) {
-	if running {
+func (a *ApiService) handlePostStartNow(writer http.ResponseWriter, _ *http.Request) {
+	if a.spotify.running {
 		http.Error(writer, "Already started", http.StatusBadRequest)
 		return
 	}
-	if playlist.ID == "" {
+	if a.spotify.playlist.ID == "" {
 		// TODO show some error on the UI somewhere in that case
 		slog.Warn("Start requested but no playlist selected")
 		http.Error(writer, "No playlist selected", http.StatusBadRequest)
 		return
 	}
-	track, err := GetCurrentlyPlayedTrack(context.Background())
+	track, err := a.spotify.GetCurrentlyPlayedTrack(context.Background())
 	if err != nil {
 		slog.Warn("Cannot get currently played track", "err", err)
 		http.Error(writer, "Failed to get currently played track", http.StatusInternalServerError)
@@ -335,38 +347,38 @@ func handlePostStartNow(writer http.ResponseWriter, request *http.Request) {
 
 	if track.Playing {
 		slog.Debug("Track is playing, using its timestamp", "timestamp", track.Timestamp)
-		lastTime = track.Timestamp
+		a.spotify.lastTime = track.Timestamp
 	} else {
 		slog.Debug("Track not playing, using current time")
-		lastTime = time.Now().UnixMilli()
+		a.spotify.lastTime = time.Now().UnixMilli()
 	}
 
-	startCh <- struct{}{}
-	renderSpotifyRunState(writer, true)
+	a.spotify.startCh <- struct{}{}
+	a.renderSpotifyRunState(writer, true)
 }
 
 // handlePostStop http handler tries to stop the playlist processing by writing to the stopCh channel.
 //
 // If processing is not running, http.StatusBadRequest is returned.
-func handlePostStop(writer http.ResponseWriter, _ *http.Request) {
-	if !running {
+func (a *ApiService) handlePostStop(writer http.ResponseWriter, _ *http.Request) {
+	if !a.spotify.running {
 		http.Error(writer, "Already stopped", http.StatusBadRequest)
 		return
 	}
-	stopCh <- struct{}{}
-	renderSpotifyRunState(writer, false)
+	a.spotify.stopCh <- struct{}{}
+	a.renderSpotifyRunState(writer, false)
 }
 
 // renderSpotifyRunState renders the current playlist processing running state.
-func renderSpotifyRunState(writer http.ResponseWriter, state bool) {
+func (a *ApiService) renderSpotifyRunState(writer http.ResponseWriter, state bool) {
 	data := struct {
 		Running  bool
 		Playlist PlaylistInfo
 	}{
 		Running:  state,
-		Playlist: playlist,
+		Playlist: a.spotify.playlist,
 	}
-	if err := renderTemplate(writer, "templates/snippets/runstate.html", data); err != nil {
+	if err := a.renderTemplate(writer, "templates/snippets/runstate.html", data); err != nil {
 		return
 	}
 }

@@ -21,11 +21,14 @@ func main() {
 
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
-	ApiHandlersSetup()
-	go ApiHandlersRun()
+	spotifyService := NewSpotifyService()
 
-	SpotifyClientSetup()
-	go SpotifyPlaylistHandlerRun()
+	apiService := NewApiService(spotifyService)
+	apiService.Setup()
+	go apiService.Run()
+
+	spotifyService.Setup()
+	go spotifyService.RunPlaylistHandler()
 
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 	<-signalCh
