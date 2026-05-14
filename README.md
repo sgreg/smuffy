@@ -80,3 +80,37 @@ Following entries are supported and understood. **Bold** entries are mandatory, 
 - **`SPOTIFY_REDIRECT_URL=<string>`** one of the app's defined callback urls, defaults to http://localhost:58071/callback
 - `PLAYLIST_REQUEST_INTERVAL_MINUTES=<int>` time interval to update the playlist with the last played songs, defaults to 10 minutes
 - `CACHE_AUTH_TOKEN=<int>` set to `1` if Spotify auth token should be cached in a `.cache` file to reuse it next time the tool is started, comment it out to request auth on every start
+
+## Running it as a systemd service
+
+To set up smuffy to run automatically in the background on startup etc., a sample systemd service file
+[`smuffy.service`](smuffy.service) is provided. This expects a dedicated user `smuffy` on the system,
+using `/var/lib/smuffy` as its working directory.
+
+### Set up dedicated non-privileged user
+
+```shell
+sudo useradd --system --home-dir /var/lib/smuffy --shell /usr/sbin/nologin smuffy
+sudo install -d -o smuffy -g smuffy -m 0750 /var/lib/smuffy
+```
+
+### Install smuffy
+
+```shell
+sudo install -o root -g root -m 0755 smuffy /usr/local/bin/smuffy
+```
+
+### Configure smuffy
+
+Write a `smuffy.env` file using [`env.sample`](env.example) as base, then move it in its place.
+```shell
+sudo install -o smuffy -g smuffy -m 0640 smuffy.env /var/lib/smuffy/.env
+```
+
+### Set up systemd
+
+```shell
+sudo install -o root -g root -m 0644 smuffy.service /etc/systemd/system/smuffy.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now smuffy.service
+```

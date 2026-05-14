@@ -1,0 +1,16 @@
+[Unit]
+Description=smuffy - the Spotify Mix Unfcker
+After=syslog.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=smuffy
+Group=smuffy
+WorkingDirectory=/var/lib/smuffy
+ExecStart=/usr/local/bin/smuffy
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
