@@ -19,7 +19,11 @@ func main() {
 		log.Fatal("Error loading .env file", err)
 	}
 
-	slog.SetLogLoggerLevel(slog.LevelDebug)
+	logger := slog.New(slog.NewTextHandler(os.Stdout,
+		&slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	slog.SetDefault(logger)
 
 	spotifyService := NewSpotifyService()
 
